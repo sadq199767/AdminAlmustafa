@@ -366,12 +366,22 @@ export default function AdminApp({
         await api(
           existing ? `employees/${existing.id}` : "employees",
           existing ? "PATCH" : "POST",
-          input,
+          existing
+            ? input
+            : {
+                ...input,
+                email: String(values.get("email")).trim(),
+                password: String(values.get("password")),
+              },
         );
         await reload();
       }
       notify(
-        existing ? "تم تحديث بيانات الموظف" : "تمت إضافة الموظف إلى الفريق",
+        existing
+          ? "تم تحديث بيانات الموظف"
+          : demo
+            ? "تمت إضافة الموظف في المعاينة؛ لم يُنشأ حساب دخول حقيقي."
+            : "تمت إضافة الموظف وإنشاء حساب دخوله وربطه به",
       );
     });
   };
@@ -1822,6 +1832,43 @@ export default function AdminApp({
                     />
                   </label>
                 </div>
+                {!modal.employee && (
+                  <>
+                    <h3>حساب الدخول إلى برنامج الموظفين</h3>
+                    <div className="form-grid">
+                      <label>
+                        البريد الإلكتروني
+                        <input
+                          name="email"
+                          type="email"
+                          dir="ltr"
+                          autoComplete="off"
+                          placeholder="employee@example.com"
+                          required
+                        />
+                      </label>
+                      <label>
+                        كلمة المرور
+                        <input
+                          name="password"
+                          type="password"
+                          dir="ltr"
+                          minLength={6}
+                          maxLength={12}
+                          autoComplete="new-password"
+                          aria-describedby="new-employee-password-hint"
+                          required
+                        />
+                      </label>
+                    </div>
+                    <p id="new-employee-password-hint" className="field-hint">
+                      كلمة المرور من 6 إلى 12 خانة، ويمكن أن تكون أرقامًا فقط.
+                      {demo
+                        ? " في المعاينة لن تُحفظ بيانات الدخول أو يُنشأ حساب حقيقي."
+                        : " سيُنشأ حساب بصلاحية موظف ويرتبط بهذا الموظف تلقائيًا."}
+                    </p>
+                  </>
+                )}
                 <div className="form-note">
                   <CircleHelp size={16} /> يُستخدم معرّف تلكرام الرقمي لإرسال
                   إشعارات المهام.
@@ -1839,7 +1886,7 @@ export default function AdminApp({
                       ? "جارٍ الحفظ…"
                       : modal.employee
                         ? "حفظ التعديلات"
-                        : "إضافة الموظف"}
+                        : "إضافة الموظف وإنشاء الحساب"}
                     <Check size={16} />
                   </button>
                 </div>

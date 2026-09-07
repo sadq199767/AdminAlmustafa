@@ -21,6 +21,20 @@ export const employeeSchema = z.object({
   daily_hours: z.number().min(0.5).max(24),
   joined_on: date,
 });
+export const createEmployeeSchema = employeeSchema
+  .extend({
+    email: z.string().trim().email().optional(),
+    password: z.string().min(6).max(12).optional(),
+  })
+  .superRefine((input, ctx) => {
+    if ((input.email !== undefined) !== (input.password !== undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [input.email === undefined ? "email" : "password"],
+        message: "أدخل البريد وكلمة المرور معًا.",
+      });
+    }
+  });
 export const taskSchema = z.object({
   title: z.string().trim().min(3).max(200),
   description: z.string().max(5000).default(""),

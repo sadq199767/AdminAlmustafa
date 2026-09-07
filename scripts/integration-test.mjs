@@ -83,6 +83,90 @@ try {
     201,
   );
   employees.push(other.id);
+  for (const [actor, length] of [
+    [owner, 6],
+    [manager, 12],
+  ]) {
+    const name = `حساب موظف مرتبط ${length} ${marker}`;
+    const email = `qa-linked-${length}-${marker}@example.com`;
+    const password = Array.from({ length }, () => randomInt(0, 10)).join("");
+    const details = {
+      name,
+      profession: "فحص الربط",
+      daily_hours: 8,
+      joined_on: "2026-09-01",
+    };
+    for (const credentials of [
+      { email },
+      { password },
+      { email: "invalid", password },
+      { email, password: password.slice(0, 5) },
+      { email, password: password.padEnd(13, "0") },
+    ]) {
+      assert.equal(
+        (await api(actor, "employees", "POST", { ...details, ...credentials }))
+          .status,
+        400,
+      );
+    }
+    const before = await admin.from("employees").select("id").eq("name", name);
+    assert.equal(before.error, null);
+    assert.equal(before.data.length, 0);
+    const linkedEmployee = ok(
+      await api(actor, "employees", "POST", {
+        ...details,
+        email,
+        password,
+        role: "owner",
+      }),
+      201,
+    );
+    employees.push(linkedEmployee.id);
+    if (linkedEmployee.user_id) users.push(linkedEmployee.user_id);
+    assert.ok(linkedEmployee.user_id);
+    assert.equal("password" in linkedEmployee, false);
+    assert.equal("email" in linkedEmployee, false);
+    const profile = await admin
+      .from("profiles")
+      .select("role,name")
+      .eq("id", linkedEmployee.user_id)
+      .single();
+    assert.equal(profile.error, null);
+    assert.equal(profile.data.role, "employee");
+    assert.equal(profile.data.name, name);
+    assert.equal(
+      (await api(actor, "employees", "POST", { ...details, email, password }))
+        .status,
+      409,
+    );
+    const after = await admin.from("employees").select("id").eq("name", name);
+    assert.equal(after.error, null);
+    assert.deepEqual(
+      after.data.map((row) => row.id),
+      [linkedEmployee.id],
+    );
+    const loginClient = createClient(url, key, options);
+    const login = await loginClient.auth.signInWithPassword({
+      email,
+      password,
+    });
+    assert.equal(login.error, null);
+    assert.equal(login.data.user.id, linkedEmployee.user_id);
+    const own = await loginClient.from("employees").select("id");
+    assert.equal(own.error, null);
+    assert.deepEqual(
+      own.data.map((row) => row.id),
+      [linkedEmployee.id],
+    );
+    assert.equal(
+      (await api({ token: login.data.session.access_token }, "data")).status,
+      403,
+    );
+    await loginClient.auth.signOut();
+  }
+  console.log(
+    "PASS: adding employees creates linked employee-only logins; duplicate email and invalid credentials leave no extra records.",
+  );
   for (const length of [6, 12]) {
     const passwordEmployee = ok(
       await api(owner, "employees", "POST", {
