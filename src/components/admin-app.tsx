@@ -2283,11 +2283,16 @@ export default function AdminApp({
                     type="password"
                     name="password"
                     dir="ltr"
-                    minLength={12}
-                    maxLength={72}
+                    minLength={6}
+                    maxLength={12}
+                    aria-describedby="account-password-hint"
                     required
                     autoComplete="new-password"
                   />
+                  <small id="account-password-hint" className="field-hint">
+                    من 6 إلى 12 خانة، ويمكن استخدام أرقام فقط. الحد الأدنى لخدمة
+                    الدخول هو 6 خانات.
+                  </small>
                 </label>
                 <label>
                   الصلاحية

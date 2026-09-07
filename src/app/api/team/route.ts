@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       .object({
         employee_id: z.string().uuid(),
         email: z.email(),
-        password: z.string().min(12).max(72),
+        password: z.string().min(6).max(12),
         role: z.enum(["manager", "employee"]),
       })
       .parse(await req.json());

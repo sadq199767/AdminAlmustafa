@@ -54,7 +54,7 @@ export default function Activate() {
               const result = await supabase?.auth.updateUser({ password });
               if (result?.error) {
                 setError(
-                  "تعذّر حفظ كلمة المرور. جرّب كلمة قوية من 12 حرفًا على الأقل.",
+                  "تعذّر حفظ كلمة المرور. استخدم من 6 إلى 12 خانة، أو اطلب رابط تفعيل جديدًا إذا انتهت صلاحية الرابط.",
                 );
                 setBusy(false);
               } else location.href = "/";
@@ -66,8 +66,9 @@ export default function Activate() {
                 name="password"
                 type="password"
                 dir="ltr"
-                minLength={12}
-                maxLength={72}
+                minLength={6}
+                maxLength={12}
+                aria-describedby="activation-password-hint"
                 autoComplete="new-password"
                 required
               />
@@ -78,12 +79,15 @@ export default function Activate() {
                 name="confirm"
                 type="password"
                 dir="ltr"
-                minLength={12}
-                maxLength={72}
+                minLength={6}
+                maxLength={12}
                 autoComplete="new-password"
                 required
               />
             </label>
+            <p id="activation-password-hint" className="field-hint">
+              من 6 إلى 12 خانة، ويمكن استخدام أرقام فقط.
+            </p>
             <button className="button primary full" disabled={busy}>
               {busy ? "جارٍ الحفظ…" : "حفظ كلمة المرور والدخول"}
             </button>

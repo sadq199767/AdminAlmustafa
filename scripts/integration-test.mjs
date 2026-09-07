@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { loadEnvFile } from "node:process";
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, randomInt } from "node:crypto";
 import assert from "node:assert/strict";
 loadEnvFile(".env.local");
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -83,6 +83,65 @@ try {
     201,
   );
   employees.push(other.id);
+  for (const length of [6, 12]) {
+    const passwordEmployee = ok(
+      await api(owner, "employees", "POST", {
+        name: `اختبار كلمة مرور ${length}`,
+        profession: "فحص الحساب",
+        daily_hours: 8,
+        joined_on: "2026-09-01",
+      }),
+      201,
+    );
+    employees.push(passwordEmployee.id);
+    const numericPassword = Array.from({ length }, () => randomInt(0, 10)).join(
+      "",
+    );
+    const email = `qa-password-${length}-${marker}@example.com`;
+    for (const invalidPassword of [
+      numericPassword.slice(0, 5),
+      numericPassword.padEnd(13, "0"),
+    ]) {
+      assert.equal(
+        (
+          await api(owner, "team", "POST", {
+            employee_id: passwordEmployee.id,
+            email,
+            password: invalidPassword,
+            role: "employee",
+          })
+        ).status,
+        400,
+      );
+    }
+    ok(
+      await api(owner, "team", "POST", {
+        employee_id: passwordEmployee.id,
+        email,
+        password: numericPassword,
+        role: "employee",
+      }),
+    );
+    const linkedAccount = await admin
+      .from("employees")
+      .select("user_id")
+      .eq("id", passwordEmployee.id)
+      .single();
+    assert.equal(linkedAccount.error, null);
+    assert.ok(linkedAccount.data.user_id);
+    users.push(linkedAccount.data.user_id);
+    const passwordClient = createClient(url, key, options);
+    const signedIn = await passwordClient.auth.signInWithPassword({
+      email,
+      password: numericPassword,
+    });
+    assert.equal(signedIn.error, null);
+    assert.equal(signedIn.data.user.id, linkedAccount.data.user_id);
+    await passwordClient.auth.signOut();
+  }
+  console.log(
+    "PASS: 6- and 12-digit passwords create linked accounts and sign in; invalid lengths are rejected.",
+  );
   const { error: linked } = await admin
     .from("employees")
     .update({ user_id: employee.id })
