@@ -83,28 +83,9 @@ export async function sendNotification(
     .single();
   if (error || !delivery)
     return error?.code === "23505" ? "duplicate" : "failed";
+  let token: string;
   try {
-    const token = decryptToken(secret.encrypted_token);
-    const response = await fetch(
-      `https://api.telegram.org/bot${token}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: employee.telegram_id, text: message }),
-        signal: AbortSignal.timeout(8000),
-      },
-    );
-    const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error("Telegram failed");
-    await db
-      .from("notification_deliveries")
-      .update({
-        status: "sent",
-        sent_at: new Date().toISOString(),
-        last_error: null,
-      })
-      .eq("id", delivery.id);
-    return "sent";
+    token = decryptToken(secret.encrypted_token);
   } catch {
     await db
       .from("notification_deliveries")
@@ -115,6 +96,49 @@ export async function sendNotification(
       .eq("id", delivery.id);
     return "failed";
   }
+  const retryDelays = [0, 900, 2200];
+  for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, retryDelays[attempt]));
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${token}/sendMessage`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: employee.telegram_id, text: message }),
+          signal: AbortSignal.timeout(8000),
+        },
+      );
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error("Telegram failed");
+      await db
+        .from("notification_deliveries")
+        .update({
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          last_error: null,
+        })
+        .eq("id", delivery.id);
+      return "sent";
+    } catch {
+      try {
+        await db
+          .from("notification_deliveries")
+          .update({ attempts: attempt + 2 })
+          .eq("id", delivery.id);
+      } catch {
+        /* محاولة تتبع المحاولة الإضافية ليست حرجة */
+      }
+    }
+  }
+  await db
+    .from("notification_deliveries")
+    .update({
+      status: "failed",
+      last_error: "تعذّر تسليم إشعار تلكرام؛ تحقق من التوكن ومعرّف المحادثة.",
+    })
+    .eq("id", delivery.id);
+  return "failed";
 }
 async function deliverScreenshot(
   eventId: string,
