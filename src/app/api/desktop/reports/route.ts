@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { authorize, assertDb, fail } from "@/lib/server";
+import { authorize, assertDb, fail, assertSystemRunning } from "@/lib/server";
 export async function POST(req: NextRequest) {
   try {
     const { db } = await authorize(req, true);
+    await assertSystemRunning();
     const input = z
       .object({
         day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

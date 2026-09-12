@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -39,6 +40,9 @@ import {
   Circle,
   Activity as ActivityIcon,
   LockKeyhole,
+  PowerOff,
+  Camera,
+  MessageSquare,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type {
@@ -46,8 +50,10 @@ import type {
   Employee,
   Task,
   TaskStatus,
+  TaskComment,
   Report,
   Profile,
+  Role,
 } from "@/lib/types";
 import { createDemo } from "@/lib/demo";
 import { employeeMetrics, hours, todayInBaghdad } from "@/lib/metrics";
@@ -55,7 +61,7 @@ import { configured, supabase } from "@/lib/supabase";
 import { ThemeToggle } from "@/components/theme-provider";
 import { NotificationBell } from "@/components/notification-bell";
 
-type Page = "dashboard" | "employees" | "tasks" | "reports" | "settings";
+type Page = "dashboard" | "employees" | "tasks" | "sent" | "reports" | "settings";
 type Modal =
   | { type: "employee"; employee?: Employee }
   | { type: "task" }
@@ -64,12 +70,21 @@ type Modal =
   | { type: "task-detail"; task: Task }
   | { type: "delete-task"; task: Task }
   | { type: "delete"; employee: Employee }
-  | { type: "account"; employee: Employee }
   | null;
+function roleName(role: Role) {
+  return role === "owner"
+    ? "المالك"
+    : role === "management"
+      ? "الإدارة — متابعة"
+      : role === "supervisor"
+        ? "المسؤول المباشر"
+        : "موظف";
+}
 const pages: { id: Page; name: string; icon: LucideIcon }[] = [
   { id: "dashboard", name: "نظرة عامة", icon: LayoutDashboard },
   { id: "employees", name: "الموظفون", icon: Users },
   { id: "tasks", name: "المهام", icon: Columns3 },
+  { id: "sent", name: "المهام المرسلة", icon: Send },
   { id: "reports", name: "التقارير اليومية", icon: FileText },
   { id: "settings", name: "الإعدادات", icon: Settings },
 ];
@@ -96,6 +111,35 @@ const dateLabel = (date: string) =>
     timeZone: "Asia/Baghdad",
   }).format(new Date(date.length === 10 ? `${date}T12:00:00Z` : date));
 const avatarColors = ["sage", "peach", "lilac", "blue", "rose", "yellow"];
+function taskAssigneeIds(task: Task) {
+  return task.assignee_ids?.length ? task.assignee_ids : [task.employee_id];
+}
+function taskAssigneeNames(data: AppData, task: Task) {
+  return taskAssigneeIds(task)
+    .map((id) => data.employees.find((e) => e.id === id)?.name)
+    .filter(Boolean) as string[];
+}
+function isEmployeeOnline(
+  emp: { last_seen_at?: string | null; id: string },
+  attendance: { employee_id: string; work_date: string; ended_at: string | null }[],
+  todayStr: string,
+) {
+  if (emp.last_seen_at) {
+    const diff = Date.now() - new Date(emp.last_seen_at).getTime();
+    if (diff < 180_000) return true;
+  }
+  return attendance.some(
+    (a) => a.employee_id === emp.id && a.work_date === todayStr && !a.ended_at,
+  );
+}
+function StatusDot({ online }: { online: boolean }) {
+  return (
+    <span
+      className={`status-dot ${online ? "online" : "offline"}`}
+      title={online ? "متصل الآن" : "غير متصل"}
+    />
+  );
+}
 function Avatar({
   name,
   index = 0,
@@ -174,14 +218,18 @@ export default function AdminApp({
   const [page, setPage] = useState<Page>(pageFromLocation);
   const [search, setSearch] = useState("");
   const [month, setMonth] = useState(todayInBaghdad().slice(0, 7));
+  const todayStr = todayInBaghdad();
   const [modal, setModal] = useState<Modal>(null);
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(
     null,
   );
   const [busy, setBusy] = useState(false);
+  const [requestingId, setRequestingId] = useState<string | null>(null);
   const [mobile, setMobile] = useState(false);
   const [taskFilter, setTaskFilter] = useState("all");
   const [taskView, setTaskView] = useState<"board" | "list">("board");
+  const [dragTask, setDragTask] = useState<Task | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
   const [reportEmployee, setReportEmployee] = useState("all");
   const [notices, setNotices] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -224,6 +272,38 @@ export default function AdminApp({
       setLoading(false);
     }
   }, [api]);
+  const role = data?.profile?.role;
+  const canManageEmployees = role === "owner" || role === "supervisor";
+  const canManageTasks =
+    role === "owner" ||
+    role === "supervisor" ||
+    Boolean(data?.profile.can_follow_tasks);
+  const canRemoveTask = useCallback(
+    (task: Task) =>
+      role === "owner" ||
+      role === "supervisor" ||
+      task.assigned_by === data?.profile.id,
+    [role, data?.profile.id],
+  );
+  // يطلب المسؤول المباشر/المالك التقاط شاشة الموظف؛ تُرسل اللقطة
+  // لتلكرام المسؤول مباشرة عبر تطبيق الديسكتوب على جهاز الموظف.
+  const requestScreenshot = useCallback(
+    async (employee: Employee) => {
+      if (!supabase) return;
+      setRequestingId(employee.id);
+      try {
+        await api("screenshot-requests", "POST", {
+          employee_id: employee.id,
+        });
+        notify(`طُلب التقاط شاشة موظف «${employee.name}». تُرسل لتلكرامك مباشرة.`);
+      } catch (e) {
+        notify((e as Error).message, true);
+      } finally {
+        setRequestingId(null);
+      }
+    },
+    [api, notify, supabase],
+  );
   useEffect(() => {
     const value = pageFromLocation();
     setPage(value);
@@ -297,11 +377,11 @@ export default function AdminApp({
     else if (!modal && dialog.current?.open) dialog.current.close();
   }, [modal]);
   useEffect(() => {
-    if (page === "settings" && !demo && data?.profile.role === "owner")
+    if (!demo && data && ["owner", "supervisor"].includes(data.profile.role))
       void api("team")
         .then(setTeam)
         .catch((e) => notify(e.message, true));
-  }, [page, demo, data?.profile.role, api, notify]);
+  }, [demo, data?.profile.role, api, notify]);
   const changePage = (p: Page) => {
     setPage(p);
     const url = new URL(window.location.href);
@@ -316,6 +396,16 @@ export default function AdminApp({
     setMobile(false);
     setNotices(false);
   };
+  useEffect(() => {
+    if (
+      data?.profile.role === "employee" &&
+      data.profile.can_follow_tasks &&
+      !["dashboard", "tasks", "sent"].includes(page)
+    ) {
+      setPage("tasks");
+      window.history.replaceState(null, "", `${window.location.pathname}?section=tasks`);
+    }
+  }, [data?.profile.role, data?.profile.can_follow_tasks, page]);
   const mutate = async (operation: () => Promise<void>) => {
     setBusy(true);
     try {
@@ -327,9 +417,100 @@ export default function AdminApp({
       setBusy(false);
     }
   };
+
+  function CommentsTab({ task }: { task: Task }) {
+    const [list, setList] = useState<TaskComment[]>([]);
+    const [text, setText] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      let active = true;
+      (async () => {
+        try {
+          const data = await api(`tasks/${task.id}/comments`);
+          if (active) setList(data as TaskComment[]);
+        } catch {
+          /* 회원이 참여하지 않는 مهمة */
+        } finally {
+          if (active) setLoading(false);
+        }
+      })();
+      return () => {
+        active = false;
+      };
+    }, [task.id, api]);
+
+    useEffect(() => {
+      const client = supabase;
+      if (!client) return;
+      const ch = client
+        .channel(`admin-comment-${task.id}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "task_comments", filter: `task_id=eq.${task.id}` },
+          (p) => {
+            const row = p.new as TaskComment;
+            setList((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]));
+          },
+        )
+        .subscribe();
+      return () => {
+        void client.removeChannel(ch);
+      };
+    }, [task.id, supabase]);
+
+    const submit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!text.trim()) return;
+      setBusy(true);
+      try {
+        const res = await api(`tasks/${task.id}/comments`, "POST", { body: text.trim() });
+        setList((prev) => [...prev, res as TaskComment]);
+        setText("");
+      } catch (err) {
+        notify((err as Error).message, true);
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    if (loading) return <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 16 }}>جارٍ تحميل التعليقات…</p>;
+    return (
+      <div className="task-comments">
+        <h3 style={{ fontSize: 15, margin: "16px 0 8px" }}>التعليقات</h3>
+        <div className="task-comments-list">
+          {!list.length && <div className="task-comments-empty">لا توجد تعليقات بعد.</div>}
+          {list.map((c) => (
+            <div className="task-comment" key={c.id}>
+              <strong>{c.author_name}</strong>
+              <p>{c.body}</p>
+              <time>{new Date(c.created_at).toLocaleString("ar-IQ")}</time>
+            </div>
+          ))}
+        </div>
+        <form className="task-comment-form" onSubmit={submit}>
+          <input
+            className="task-comment-input"
+            placeholder="أضف تعليقًا…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={2000}
+            required
+            disabled={busy}
+          />
+          <button type="submit" className="button primary" disabled={busy || !text.trim()}>
+            إرسال
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   const saveEmployee = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
+    const updatedPassword = String(values.get("password") ?? "");
     const input = {
       name: String(values.get("name")),
       profession: String(values.get("profession")),
@@ -337,6 +518,7 @@ export default function AdminApp({
       telegram_id: String(values.get("telegram_id")),
       daily_hours: Number(values.get("daily_hours")),
       joined_on: String(values.get("joined_on")),
+      supervisor_id: String(values.get("supervisor_id") || "") || null,
     };
     void mutate(async () => {
       const existing = modal?.type === "employee" ? modal.employee : undefined;
@@ -367,7 +549,15 @@ export default function AdminApp({
           existing ? `employees/${existing.id}` : "employees",
           existing ? "PATCH" : "POST",
           existing
-            ? input
+            ? {
+                ...input,
+                ...(existing.user_id
+                  ? {
+                      email: String(values.get("email") ?? "").trim() || undefined,
+                      ...(updatedPassword ? { password: updatedPassword } : {}),
+                    }
+                  : {}),
+              }
             : {
                 ...input,
                 email: String(values.get("email")).trim(),
@@ -388,13 +578,21 @@ export default function AdminApp({
   const saveTask = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
+    const assignee_ids = values
+      .getAll("assignee_id")
+      .map((v) => String(v));
     const input = {
       title: String(values.get("title")),
       description: String(values.get("description")),
-      employee_id: String(values.get("employee_id")),
+      employee_id: assignee_ids[0],
+      assignee_ids,
       priority: String(values.get("priority")) as Task["priority"],
       due_date: String(values.get("due_date")) || null,
     };
+    if (!assignee_ids.length) {
+      notify("اختر موظفًا واحدًا على الأقل للمهمة.", true);
+      return;
+    }
     void mutate(async () => {
       if (demo) {
         const now = new Date().toISOString();
@@ -543,6 +741,27 @@ export default function AdminApp({
       notify("تم حذف الموظف وسجلاته المرتبطة نهائيًا");
     });
   const activeEmployees = data?.employees.filter((e) => !e.archived_at) || [];
+  const years = useMemo(() => {
+    const set = new Set([Number(todayInBaghdad().slice(0, 4))]);
+    if (data) {
+      for (const a of data.attendance) set.add(Number(a.work_date.slice(0, 4)));
+      for (const r of data.reports) set.add(Number(r.report_date.slice(0, 4)));
+      for (const t of data.tasks) {
+        set.add(Number(todayInBaghdad(new Date(t.created_at)).slice(0, 4)));
+        if (t.completed_at)
+          set.add(Number(todayInBaghdad(new Date(t.completed_at)).slice(0, 4)));
+      }
+    }
+    return [...set].sort((a, b) => b - a);
+  }, [data]);
+  const selectYear = (y: number) => {
+    const candidate = `${y}-${month.slice(5, 7)}`;
+    setMonth(
+      candidate > todayInBaghdad().slice(0, 7)
+        ? todayInBaghdad().slice(0, 7)
+        : candidate,
+    );
+  };
   const metrics = useMemo(
     () =>
       data
@@ -565,13 +784,22 @@ export default function AdminApp({
   const filteredEmployees = (data?.employees || []).filter((e) =>
     `${e.name} ${e.profession} ${e.phone}`.includes(search),
   );
-  const filteredTasks = (data?.tasks || []).filter(
-    (t) =>
-      (taskFilter === "all" || t.employee_id === taskFilter) &&
-      `${t.title} ${data?.employees.find((e) => e.id === t.employee_id)?.name}`.includes(
-        search,
-      ),
-  );
+  const filteredTasks = (data?.tasks || []).filter((t) => {
+    const assignees = t.assignee_ids?.length ? t.assignee_ids : [t.employee_id];
+    const matchesFilter =
+      taskFilter === "all" ||
+      t.employee_id === taskFilter ||
+      assignees.includes(taskFilter);
+    const names = assignees
+      .map((id) => data?.employees.find((e) => e.id === id)?.name)
+      .filter(Boolean)
+      .join(" ");
+    return (
+      matchesFilter &&
+      (page !== "sent" || t.assigned_by === data?.profile.id) &&
+      `${t.title} ${names}`.includes(search)
+    );
+  });
   const filteredReports = (data?.reports || []).filter(
     (r) =>
       r.report_date.startsWith(month) &&
@@ -752,7 +980,49 @@ export default function AdminApp({
               استكشاف النسخة التجريبية <ArrowLeftIcon />
             </a>
             <small className="login-note">
-              <ShieldCheck size={15} /> الدخول مخصص للمالك والمدير فقط
+              <ShieldCheck size={15} /> الدخول متاح للمالك والإدارة والمسؤول
+              المباشر والمتابع
+            </small>
+          </div>
+        </main>
+      </div>
+    );
+  if (data?.settings.system_suspended)
+    return (
+      <div className="login-page">
+        <div className="login-story">
+          <div className="brand light">
+            <div className="brand-symbol">م</div>
+            <strong>
+              {data.settings.organization_name}
+              <span>مساحة إدارة الفريق</span>
+            </strong>
+          </div>
+          <div>
+            <span className="eyebrow">توقف مؤقت</span>
+            <h1>النظام متوقف مؤقتًا.</h1>
+            <p>
+              أوقف المالك النظام بالكامل. يعود العمل عند إعادة التشغيل من صفحة
+              تحكم المالك.
+            </p>
+          </div>
+          <small>المصطفى © {new Date().getFullYear()}</small>
+        </div>
+        <main className="login-form">
+          <div className="login-form-inner">
+            <span className="login-icon">
+              <PowerOff size={26} />
+            </span>
+            <h2>النظام موقوف</h2>
+            <p>
+              {(data.settings.system_suspend_reason || "").trim() ||
+                "أوقفه المالك لأسباب إدارية. لا يمكن تسجيل دوام أو مهام جديدة حاليًا."}
+            </p>
+            <a className="button primary full" href="/admin">
+              صفحة تحكم المالك
+            </a>
+            <small className="login-note">
+              لا يمكن إعادة تشغيل النظام إلا من حساب المالك
             </small>
           </div>
         </main>
@@ -778,7 +1048,18 @@ export default function AdminApp({
         <div className="workspace-label">مساحة العمل</div>
         <nav>
           {pages
-            .filter((p) => p.id !== "settings" || data.profile.role === "owner")
+            .filter((p) => {
+              if (p.id === "sent" && !data.profile.can_follow_tasks) return false;
+              if (
+                data.profile.role === "employee" &&
+                data.profile.can_follow_tasks
+              )
+                return ["dashboard", "tasks", "sent"].includes(p.id);
+              return (
+                p.id !== "settings" ||
+                ["owner", "supervisor"].includes(data.profile.role)
+              );
+            })
             .map(({ id, name, icon: Icon }) => (
               <button
                 key={id}
@@ -816,8 +1097,12 @@ export default function AdminApp({
               <strong>{data.profile.name}</strong>
               <small>
                 {data.profile.role === "owner"
-                  ? "مالك مساحة العمل"
-                  : "مدير الفريق"}
+                  ? "المالك"
+                  : data.profile.role === "management"
+                    ? "الإدارة — متابعة"
+                    : data.profile.role === "supervisor"
+                      ? "المسؤول المباشر"
+                      : "موظف"}
               </small>
             </div>
             <button
@@ -923,6 +1208,8 @@ export default function AdminApp({
                       "الأشخاص خلف كل إنجاز. تابع فريقك واهتم بالتفاصيل.",
                     tasks:
                       "من الفكرة إلى الإنجاز. نظّم أولويات فريقك وراقب التقدّم.",
+                    sent:
+                      "المهام التي أرسلتها للموظفين وحالتها الحالية.",
                     reports: "صورة أوضح ليوم العمل، بكلمات فريقك.",
                     settings: "اضبط مساحة العمل بما يناسب طريقة عمل فريقك.",
                   }[page]
@@ -936,7 +1223,7 @@ export default function AdminApp({
                   تصدير التقرير
                 </button>
               )}
-              {["dashboard", "tasks"].includes(page) && (
+              {["dashboard", "tasks", "sent"].includes(page) && canManageTasks && (
                 <button
                   className="button primary"
                   onClick={() => setModal({ type: "task" })}
@@ -945,7 +1232,7 @@ export default function AdminApp({
                   مهمة جديدة
                 </button>
               )}
-              {page === "employees" && (
+              {page === "employees" && canManageEmployees && (
                 <button
                   className="button primary"
                   onClick={() => setModal({ type: "employee" })}
@@ -962,11 +1249,18 @@ export default function AdminApp({
                 <h2>
                   أداء الفريق <span>هذا الشهر</span>
                 </h2>
-                <MonthPicker
-                  label="شهر الإحصائيات"
-                  value={month}
-                  onChange={setMonth}
-                />
+                <div className="stats-period">
+                  <YearPicker
+                    value={Number(month.slice(0, 4))}
+                    years={years}
+                    onChange={selectYear}
+                  />
+                  <MonthPicker
+                    label="شهر الإحصائيات"
+                    value={month}
+                    onChange={setMonth}
+                  />
+                </div>
               </div>
               <section className="stats-grid">
                 <Stat
@@ -974,7 +1268,7 @@ export default function AdminApp({
                   value={num(activeEmployees.length)}
                   unit="موظف"
                   icon={Users}
-                  detail={`${num(activeEmployees.filter((e) => data.tasks.some((t) => t.employee_id === e.id && t.status === "in_progress")).length)} موظفين يعملون على مهام الآن`}
+                  detail={`${num(activeEmployees.filter((e) => data.tasks.some((t) => (t.employee_id === e.id || taskAssigneeIds(t).includes(e.id)) && t.status === "in_progress")).length)} موظفين يعملون على مهام الآن`}
                   featured
                 />
                 <Stat
@@ -1130,7 +1424,16 @@ export default function AdminApp({
                                 >
                                   <Avatar name={m.employee.name} index={i} />
                                   <span>
-                                    <strong>{m.employee.name}</strong>
+                                    <strong>
+                                      {m.employee.name}
+                                      <StatusDot
+                                        online={isEmployeeOnline(
+                                          m.employee,
+                                          data.attendance,
+                                          todayStr,
+                                        )}
+                                      />
+                                    </strong>
                                     <small>{m.employee.profession}</small>
                                   </span>
                                 </button>
@@ -1186,13 +1489,15 @@ export default function AdminApp({
                       title="لنبدأ بفريقك"
                       body="أضف الموظف الأول لتظهر إحصائيات الفريق هنا."
                       action={
-                        <button
-                          className="button primary"
-                          onClick={() => setModal({ type: "employee" })}
-                        >
-                          إضافة موظف
-                          <Plus size={16} />
-                        </button>
+                        canManageEmployees ? (
+                          <button
+                            className="button primary"
+                            onClick={() => setModal({ type: "employee" })}
+                          >
+                            إضافة موظف
+                            <Plus size={16} />
+                          </button>
+                        ) : undefined
                       }
                     />
                   )}
@@ -1311,7 +1616,16 @@ export default function AdminApp({
                               >
                                 <Avatar name={e.name} index={i} />
                                 <span>
-                                  <strong>{e.name}</strong>
+                                  <strong>
+                                    {e.name}
+                                    <StatusDot
+                                      online={isEmployeeOnline(
+                                        e,
+                                        data.attendance,
+                                        todayStr,
+                                      )}
+                                    />
+                                  </strong>
                                   <small>
                                     انضم في {dateLabel(e.joined_on)}
                                   </small>
@@ -1326,7 +1640,8 @@ export default function AdminApp({
                                 {num(
                                   data.tasks.filter(
                                     (t) =>
-                                      t.employee_id === e.id &&
+                                      (t.employee_id === e.id ||
+                                        taskAssigneeIds(t).includes(e.id)) &&
                                       t.status !== "done",
                                   ).length,
                                 )}
@@ -1347,7 +1662,18 @@ export default function AdminApp({
                                 >
                                   <Eye size={17} />
                                 </button>
-                                {data.profile.role === "owner" && (
+                                {canManageEmployees && !e.archived_at && (
+                                  <button
+                                    aria-label={`طلب لقطة شاشة ${e.name}`}
+                                    title="طلب لقطة شاشة"
+                                    className="icon-button"
+                                    disabled={requestingId === e.id}
+                                    onClick={() => void requestScreenshot(e)}
+                                  >
+                                    <Camera size={16} />
+                                  </button>
+                                )}
+                                {canManageEmployees && (
                                   <button
                                     aria-label={`تعديل ${e.name}`}
                                     title="تعديل"
@@ -1362,7 +1688,7 @@ export default function AdminApp({
                                     <Pencil size={16} />
                                   </button>
                                 )}
-                                {!e.archived_at && (
+                                {canManageEmployees && !e.archived_at && (
                                   <button
                                     aria-label={`حذف ${e.name}`}
                                     title="حذف الموظف"
@@ -1401,7 +1727,7 @@ export default function AdminApp({
               </section>
             </>
           )}
-          {page === "tasks" && (
+          {(page === "tasks" || page === "sent") && (
             <>
               <div className="toolbar standalone">
                 <div className="toolbar-group">
@@ -1445,8 +1771,23 @@ export default function AdminApp({
                   {(["todo", "in_progress", "done"] as TaskStatus[]).map(
                     (status) => (
                       <section
-                        className={`kanban-column ${status}`}
+                        className={`kanban-column ${status}${dragOverCol === status ? " drag-over" : ""}`}
                         key={status}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setDragOverCol(status);
+                        }}
+                        onDragLeave={() =>
+                          setDragOverCol((prev) =>
+                            prev === status ? null : prev,
+                          )
+                        }
+                        onDrop={() => {
+                          const task = dragTask;
+                          setDragTask(null);
+                          setDragOverCol(null);
+                          if (task) void updateStatus(task, status);
+                        }}
                       >
                         <div className="kanban-heading">
                           <h2>
@@ -1459,13 +1800,15 @@ export default function AdminApp({
                               )}
                             </span>
                           </h2>
-                          <button
-                            className="icon-button"
-                            aria-label="إضافة مهمة"
-                            onClick={() => setModal({ type: "task" })}
-                          >
-                            <Plus size={18} />
-                          </button>
+                          {canManageTasks && (
+                            <button
+                              className="icon-button"
+                              aria-label="إضافة مهمة"
+                              onClick={() => setModal({ type: "task" })}
+                            >
+                              <Plus size={18} />
+                            </button>
+                          )}
                         </div>
                         <div className="kanban-cards">
                           {filteredTasks
@@ -1477,14 +1820,26 @@ export default function AdminApp({
                                 employee={data.employees.find(
                                   (e) => e.id === task.employee_id,
                                 )}
+                                color={
+                                  data.employees.find(
+                                    (e) => e.id === task.employee_id,
+                                  )?.task_color ?? undefined
+                                }
+                                names={taskAssigneeNames(data, task)}
                                 busy={busy}
+                                dragging={dragTask?.id === task.id}
+                                onDragStart={() => setDragTask(task)}
+                                onDragEnd={() => setDragTask(null)}
                                 open={() =>
                                   setModal({ type: "task-detail", task })
                                 }
-                                update={(s) => void updateStatus(task, s)}
+                                onComments={() =>
+                                  setModal({ type: "task-detail", task })
+                                }
                                 remove={() =>
                                   setModal({ type: "delete-task", task })
                                 }
+                                canRemove={canRemoveTask(task)}
                               />
                             ))}
                           {!filteredTasks.some((t) => t.status === status) && (
@@ -1525,10 +1880,10 @@ export default function AdminApp({
                             </button>
                           </td>
                           <td>
-                            {
-                              data.employees.find((e) => e.id === t.employee_id)
-                                ?.name
-                            }
+                            {taskAssigneeNames(data, t).join("، ") ||
+                              data.employees.find(
+                                (e) => e.id === t.employee_id,
+                              )?.name}
                           </td>
                           <td>
                             <span className={`priority ${t.priority}`}>
@@ -1558,17 +1913,19 @@ export default function AdminApp({
                             </select>
                           </td>
                           <td>
-                            <button
-                              className="icon-button danger"
-                              disabled={busy}
-                              aria-label={`حذف المهمة ${t.title}`}
-                              title="حذف المهمة"
-                              onClick={() =>
-                                setModal({ type: "delete-task", task: t })
-                              }
-                            >
-                              <Trash2 size={18} />
-                            </button>
+                            {canRemoveTask(t) && (
+                              <button
+                                className="icon-button danger"
+                                disabled={busy}
+                                aria-label={`حذف المهمة ${t.title}`}
+                                title="حذف المهمة"
+                                onClick={() =>
+                                  setModal({ type: "delete-task", task: t })
+                                }
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1606,6 +1963,11 @@ export default function AdminApp({
                     ))}
                   </select>
                 </div>
+                <YearPicker
+                  value={Number(month.slice(0, 4))}
+                  years={years}
+                  onChange={selectYear}
+                />
                 <MonthPicker
                   label="شهر التقارير"
                   value={month}
@@ -1679,7 +2041,8 @@ export default function AdminApp({
               )}
             </>
           )}
-          {page === "settings" && data.profile.role === "owner" && (
+          {page === "settings" &&
+            ["owner", "supervisor"].includes(data.profile.role) && (
             <SettingsPanel
               data={data}
               demo={demo}
@@ -1687,6 +2050,8 @@ export default function AdminApp({
               team={team}
               setTeam={setTeam}
               api={api}
+              canManageAccounts={data.profile.role === "owner"}
+              canEditOrgSettings={data.profile.role === "owner"}
               save={(settings, token) =>
                 void mutate(async () => {
                   if (demo) {
@@ -1707,9 +2072,6 @@ export default function AdminApp({
                 })
               }
               notify={notify}
-              createAccount={(employee) =>
-                setModal({ type: "account", employee })
-              }
             />
           )}
           <footer className="page-footer">
@@ -1831,6 +2193,15 @@ export default function AdminApp({
                       required
                     />
                   </label>
+                  <label>
+                    المسؤول المباشر
+                    <select name="supervisor_id" defaultValue={modal.employee?.supervisor_id ?? ""}>
+                      <option value="">بدون مسؤول مباشر</option>
+                      {data.employees
+                        .filter((candidate) => candidate.id !== modal.employee?.id && !candidate.archived_at && candidate.user_id && team.some((account) => account.id === candidate.user_id && ["owner", "supervisor"].includes(account.role)))
+                        .map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+                    </select>
+                  </label>
                 </div>
                 {!modal.employee && (
                   <>
@@ -1866,6 +2237,41 @@ export default function AdminApp({
                       {demo
                         ? " في المعاينة لن تُحفظ بيانات الدخول أو يُنشأ حساب حقيقي."
                         : " سيُنشأ حساب بصلاحية موظف ويرتبط بهذا الموظف تلقائيًا."}
+                    </p>
+                  </>
+                )}
+                {modal.employee?.user_id && (
+                  <>
+                    <h3>حساب الدخول</h3>
+                    <div className="form-grid">
+                      <label>
+                        البريد الإلكتروني
+                        <input
+                          name="email"
+                          type="email"
+                          dir="ltr"
+                          autoComplete="off"
+                          defaultValue={modal.employee?.email ?? ""}
+                          required
+                        />
+                      </label>
+                      <label>
+                        كلمة مرور جديدة
+                        <input
+                          name="password"
+                          type="password"
+                          dir="ltr"
+                          minLength={6}
+                          maxLength={12}
+                          autoComplete="new-password"
+                          placeholder="اتركها فارغة للإبقاء على الحالية"
+                          aria-describedby="updated-employee-password-hint"
+                        />
+                      </label>
+                    </div>
+                    <p id="updated-employee-password-hint" className="field-hint">
+                      تعديل كلمة المرور اختياري — فارغة تعني الإبقاء على كلمة المرور
+                      الحالية. الحقل يستخدم فقط إذا أردت تغييرها.
                     </p>
                   </>
                 )}
@@ -1938,17 +2344,28 @@ export default function AdminApp({
                       placeholder="أضف تفاصيل تساعد الموظف على البدء…"
                     />
                   </label>
-                  <label>
-                    إسناد إلى
-                    <select name="employee_id" required>
-                      <option value="">اختر موظفًا</option>
+                  <div className="task-assignees-field">
+                    <span className="field-label">
+                      إسناد إلى{" "}
+                      <small>يمكنك اختيار أكثر من موظف يعمل على المهمة</small>
+                    </span>
+                    <div className="task-assignee-list">
                       {activeEmployees.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.name} — {e.profession}
-                        </option>
+                        <label key={e.id} className="task-assignee-option">
+                          <input
+                            type="checkbox"
+                            name="assignee_id"
+                            value={e.id}
+                            defaultChecked={activeEmployees.length === 1}
+                          />
+                          <Avatar name={e.name} small />
+                          <span>
+                            {e.name} — {e.profession}
+                          </span>
+                        </label>
                       ))}
-                    </select>
-                  </label>
+                    </div>
+                  </div>
                   <div className="form-grid">
                     <label>
                       الأولوية
@@ -2078,7 +2495,8 @@ export default function AdminApp({
                 {data.tasks
                   .filter(
                     (t) =>
-                      t.employee_id === modal.employee.id &&
+                      (t.employee_id === modal.employee.id ||
+                        taskAssigneeIds(t).includes(modal.employee.id)) &&
                       t.status === "done",
                   )
                   .map((t) => (
@@ -2092,7 +2510,9 @@ export default function AdminApp({
                   ))}
                 {!data.tasks.some(
                   (t) =>
-                    t.employee_id === modal.employee.id && t.status === "done",
+                    (t.employee_id === modal.employee.id ||
+                      taskAssigneeIds(t).includes(modal.employee.id)) &&
+                    t.status === "done",
                 ) && <p className="muted">لا توجد مهام منجزة بعد.</p>}
               </div>
               <h3>التقارير اليومية</h3>
@@ -2151,10 +2571,7 @@ export default function AdminApp({
               <h2 id="modal-title">{modal.task.title}</h2>
               <p className="modal-description">
                 مسؤول التنفيذ:{" "}
-                {
-                  data.employees.find((e) => e.id === modal.task.employee_id)
-                    ?.name
-                }
+                {taskAssigneeNames(data, modal.task).join("، ") || "موظف"}
               </p>
               <div className="report-full">
                 {modal.task.description || "لا توجد تفاصيل إضافية."}
@@ -2250,7 +2667,7 @@ export default function AdminApp({
                   <select name="reviewer_id" required>
                     <option value="">اختر موظفًا</option>
                     {activeEmployees
-                      .filter((e) => e.id !== modal.task.employee_id)
+                      .filter((e) => !taskAssigneeIds(modal.task).includes(e.id))
                       .map((e) => (
                         <option key={e.id} value={e.id}>
                           {e.name}
@@ -2270,90 +2687,21 @@ export default function AdminApp({
                   <Send size={15} />
                 </button>
               </form>
+              <CommentsTab task={modal.task} />
               <div className="task-detail-actions">
-                <button
-                  className="button delete-task-button"
-                  disabled={busy}
-                  onClick={() =>
-                    setModal({ type: "delete-task", task: modal.task })
-                  }
-                >
-                  <Trash2 size={17} />
-                  حذف المهمة
-                </button>
-              </div>
-            </>
-          )}
-          {modal?.type === "account" && (
-            <>
-              <span className="modal-symbol sage">
-                <ShieldCheck size={24} />
-              </span>
-              <h2 id="modal-title">حساب {modal.employee.name}</h2>
-              <p className="modal-description">
-                حساب الموظف للدسكتوب، وحساب المدير للدسكتوب ولوحة الويب.
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const f = new FormData(e.currentTarget);
-                  void mutate(async () => {
-                    if (demo)
-                      throw new Error(
-                        "إنشاء حسابات الدخول متاح في النسخة المتصلة فقط.",
-                      );
-                    await api("team", "POST", {
-                      employee_id: modal.employee.id,
-                      email: String(f.get("email")),
-                      password: String(f.get("password")),
-                      role: String(f.get("role")),
-                    });
-                    await reload();
-                    setTeam(await api("team"));
-                    notify("تم إنشاء حساب الدخول");
-                  });
-                }}
-              >
-                <label>
-                  البريد الإلكتروني
-                  <input
-                    type="email"
-                    name="email"
-                    dir="ltr"
-                    required
-                    autoComplete="off"
-                  />
-                </label>
-                <label>
-                  كلمة مرور أولية
-                  <input
-                    type="password"
-                    name="password"
-                    dir="ltr"
-                    minLength={6}
-                    maxLength={12}
-                    aria-describedby="account-password-hint"
-                    required
-                    autoComplete="new-password"
-                  />
-                  <small id="account-password-hint" className="field-hint">
-                    من 6 إلى 12 خانة، ويمكن استخدام أرقام فقط. الحد الأدنى لخدمة
-                    الدخول هو 6 خانات.
-                  </small>
-                </label>
-                <label>
-                  الصلاحية
-                  <select name="role">
-                    <option value="employee">موظف — الدسكتوب فقط</option>
-                    <option value="manager">مدير — الويب والدسكتوب</option>
-                  </select>
-                </label>
-                <div className="modal-actions">
-                  <button className="button primary" disabled={busy || demo}>
-                    إنشاء الحساب
+                {canRemoveTask(modal.task) && (
+                  <button
+                    className="button delete-task-button"
+                    disabled={busy}
+                    onClick={() =>
+                      setModal({ type: "delete-task", task: modal.task })
+                    }
+                  >
+                    <Trash2 size={17} />
+                    حذف المهمة
                   </button>
-                </div>
-              </form>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -2372,10 +2720,13 @@ function MonthPicker({
   onChange: (value: string) => void;
 }) {
   const [year, mo] = value.split("-").map(Number);
+  const todayMonth = todayInBaghdad().slice(0, 7);
   const move = (offset: number) => {
     const date = new Date(Date.UTC(year, mo - 1 + offset, 1));
     onChange(date.toISOString().slice(0, 7));
   };
+  const atStart = mo <= 1;
+  const atEnd = mo >= 12 || value === todayMonth;
   return (
     <div className="month-control">
       <button
@@ -2383,6 +2734,7 @@ function MonthPicker({
         type="button"
         aria-label={`${label}: الشهر السابق`}
         onClick={() => move(-1)}
+        disabled={atStart}
       >
         <ChevronRight size={14} />
       </button>
@@ -2397,10 +2749,35 @@ function MonthPicker({
         type="button"
         aria-label={`${label}: الشهر التالي`}
         onClick={() => move(1)}
+        disabled={atEnd}
       >
         <ChevronLeft size={14} />
       </button>
     </div>
+  );
+}
+function YearPicker({
+  value,
+  years,
+  onChange,
+}: {
+  value: number;
+  years: number[];
+  onChange: (year: number) => void;
+}) {
+  return (
+    <select
+      className="year-picker"
+      aria-label="سنة الإحصائيات"
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+    >
+      {years.map((y) => (
+        <option key={y} value={y}>
+          {y}
+        </option>
+      ))}
+    </select>
   );
 }
 function ArrowLeftIcon() {
@@ -2543,20 +2920,42 @@ function WorkChart({ data, month }: { data: AppData; month: string }) {
 function TaskCard({
   task,
   employee,
+  names,
   busy,
   open,
-  update,
   remove,
+  onComments,
+  canRemove = true,
+  color,
+  dragging = false,
+  onDragStart,
+  onDragEnd,
 }: {
   task: Task;
   employee?: Employee;
+  names?: string[];
   busy: boolean;
   open: () => void;
-  update: (s: TaskStatus) => void;
   remove: () => void;
+  onComments?: () => void;
+  canRemove?: boolean;
+  color?: string;
+  dragging?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }) {
   return (
-    <article className="task-card">
+    <article
+      className={`task-card${color ? " accent" : ""}${dragging ? " dragging" : ""}`}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      style={
+        color
+          ? ({ "--task-accent": color, borderColor: color } as CSSProperties)
+          : undefined
+      }
+    >
       <div className="task-card-top">
         <span className={`priority ${task.priority}`}>
           <i />
@@ -2565,20 +2964,30 @@ function TaskCard({
         <div className="task-card-actions">
           <button
             className="icon-button"
+            aria-label={`تعليقات ${task.title}`}
+            title="التعليقات"
+            onClick={onComments}
+          >
+            <MessageSquare size={16} />
+          </button>
+          <button
+            className="icon-button"
             aria-label={`تفاصيل ${task.title}`}
             onClick={open}
           >
             <MoreHorizontal size={18} />
           </button>
-          <button
-            className="icon-button danger"
-            aria-label={`حذف المهمة ${task.title}`}
-            title="حذف المهمة"
-            disabled={busy}
-            onClick={remove}
-          >
-            <Trash2 size={17} />
-          </button>
+          {canRemove && (
+            <button
+              className="icon-button danger"
+              aria-label={`حذف المهمة ${task.title}`}
+              title="حذف المهمة"
+              disabled={busy}
+              onClick={remove}
+            >
+              <Trash2 size={17} />
+            </button>
+          )}
         </div>
       </div>
       <button className="task-title" onClick={open}>
@@ -2597,22 +3006,19 @@ function TaskCard({
         </span>
       )}
       <div className="task-card-bottom">
-        <span>
-          <Avatar name={employee?.name || "موظف"} small />
-          {employee?.name}
+        <span className="task-card-assignees">
+          {(names?.length ? names : employee ? [employee.name] : []).map(
+            (n) => (
+              <span className="task-card-assignee" key={n}>
+                <Avatar name={n} small />
+                {n}
+              </span>
+            ),
+          )}
         </span>
-        <select
-          aria-label={`حالة ${task.title}`}
-          value={task.status}
-          disabled={busy}
-          onChange={(e) => update(e.target.value as TaskStatus)}
-        >
-          {Object.entries(statusNames).map(([s, n]) => (
-            <option value={s} key={s}>
-              {n}
-            </option>
-          ))}
-        </select>
+        <span className={`task-status-badge ${task.status}`}>
+          {statusNames[task.status]}
+        </span>
       </div>
     </article>
   );
@@ -2624,9 +3030,10 @@ function SettingsPanel({
   team,
   setTeam,
   api,
+  canManageAccounts,
+  canEditOrgSettings,
   save,
   notify,
-  createAccount,
 }: {
   data: AppData;
   demo: boolean;
@@ -2634,18 +3041,23 @@ function SettingsPanel({
   team: Profile[];
   setTeam: (p: Profile[]) => void;
   api: (path: string, method?: string, body?: unknown) => Promise<any>;
+  canManageAccounts: boolean;
+  canEditOrgSettings: boolean;
   save: (s: AppData["settings"], token: string) => void;
   notify: (s: string, error?: boolean) => void;
-  createAccount: (e: Employee) => void;
 }) {
   const [days, setDays] = useState(data.settings.work_days);
   const [enabled, setEnabled] = useState(data.settings.telegram_enabled);
   const [token, setToken] = useState("");
   const [name, setName] = useState(data.settings.organization_name);
+  const [idleMinutes, setIdleMinutes] = useState(
+    data.settings.idle_threshold_minutes ?? 10,
+  );
   const [roleBusy, setRoleBusy] = useState(false);
   return (
     <div className="settings-layout">
-      <form
+      {canEditOrgSettings && (
+        <form
         onSubmit={(e) => {
           e.preventDefault();
           save(
@@ -2653,6 +3065,7 @@ function SettingsPanel({
               organization_name: name,
               work_days: days,
               telegram_enabled: enabled,
+              idle_threshold_minutes: idleMinutes,
             },
             token,
           );
@@ -2711,6 +3124,26 @@ function SettingsPanel({
           <p className="field-hint">
             تُحسب نسبة الدوام من أيام العمل منذ تاريخ الانضمام وحتى اليوم. لا
             تشمل الأيام المستقبلية.
+          </p>
+          <label>
+            حد الخمول (دقائق)
+            <input
+              type="number"
+              dir="ltr"
+              value={idleMinutes}
+              onChange={(e) =>
+                setIdleMinutes(
+                  Math.min(60, Math.max(1, Math.round(Number(e.target.value) || 10))),
+                )
+              }
+              min={1}
+              max={60}
+            />
+          </label>
+          <p className="field-hint">
+            مقدار عدم استخدام الماوس أو الكيبورد الذي يعتبر بعدها الموظف خاملاً،
+            ولا تُحتسب مدة الخمول وقتَ عمل فعليًا. يُطبّق على أجهزة الموظفين بعد
+            تسجيل دخولهم.
           </p>
         </section>
         <section className="panel settings-panel">
@@ -2784,7 +3217,44 @@ function SettingsPanel({
           </button>
         </div>
       </form>
-      <aside>
+      )}
+      {!canManageAccounts && (
+        <aside style={{ gridColumn: "1 / -1" }}>
+          <section className="panel settings-panel">
+            <div className="settings-title">
+              <span className="modal-symbol lilac">
+                <ShieldCheck size={21} />
+              </span>
+              <div>
+                <h2>الحسابات والصلاحيات</h2>
+                <p>مخصصة للمالك فقط.</p>
+              </div>
+            </div>
+            <div className="permission-note">
+              <strong>المالك</strong>
+              <p>كل شيء: إدارة الحسابات والموظفين والمهام والإعدادات والتحكم الكلي بالنظام.</p>
+              <strong>الإدارة — متابعة</strong>
+              <p>مشاهدة كل شيء وحصر التقارير دون إدارة الحسابات أو المهام أو الإعدادات.</p>
+              <strong>مسؤول مباشر</strong>
+              <p>إضافة الموظفين وحذفهم وتعديلهم وإسناد المهام ومشاهدة التقارير.</p>
+              <strong>موظف</strong>
+              <p>يعمل عبر تطبيق الدسكتوب لتسجيل الدوام وإنجاز المهام ورفع تقاريره.</p>
+            </div>
+            <div className="alert">
+              إدارة الحسابات وتعديل الصلاحيات حصرية للمالك. يمكنك متابعة العمل من
+              باقي صفحات المساحة.
+            </div>
+          </section>
+        </aside>
+      )}
+      {canManageAccounts && (
+        <aside
+          style={
+            canEditOrgSettings
+              ? undefined
+              : { gridColumn: "1 / -1" }
+          }
+        >
         <section className="panel settings-panel">
           <div className="settings-title">
             <span className="modal-symbol lilac">
@@ -2792,81 +3262,134 @@ function SettingsPanel({
             </span>
             <div>
               <h2>الحسابات والصلاحيات</h2>
-              <p>الأشخاص الذين يمكنهم الدخول.</p>
+              <p>الموظفون وصلاحياتهم.</p>
             </div>
           </div>
           <div className="permission-note">
             <strong>المالك</strong>
-            <p>إدارة كاملة للموظفين والإعدادات والحسابات.</p>
-            <strong>المدير</strong>
-            <p>إضافة الموظفين وحذفهم وإسناد المهام وعرض التقارير.</p>
+            <p>كل شيء: إدارة الحسابات والموظفين والمهام والإعدادات والتحكم الكلي بالنظام.</p>
+            <strong>الإدارة — متابعة</strong>
+            <p>مشاهدة كل شيء وحصر التقارير دون إدارة الحسابات أو المهام أو الإعدادات.</p>
+            <strong>مسؤول مباشر</strong>
+            <p>إضافة الموظفين وحذفهم وتعديلهم وإسناد المهام ومشاهدة التقارير.</p>
+            <strong>موظف</strong>
+            <p>يعمل عبر تطبيق الدسكتوب لتسجيل الدوام وإنجاز المهام ورفع تقاريره.</p>
+            <strong>متابع (صلاحية إضافية)</strong>
+            <p>يمكن إضافتها إلى أي دور، وتمنحه قسم المهام المرسلة وإسناد المهام والتعليق عليها.</p>
           </div>
-          {!demo &&
-            team
-              .filter((p) => p.id !== data.profile.id)
-              .map((p) => (
-                <div className="account-row" key={p.id}>
-                  <span>{p.name}</span>
-                  <select
-                    disabled={roleBusy}
-                    aria-label={`صلاحية ${p.name}`}
-                    value={p.role}
-                    onChange={async (e) => {
-                      setRoleBusy(true);
-                      try {
-                        await api("team", "PATCH", {
-                          id: p.id,
-                          role: e.target.value,
-                        });
-                        setTeam(await api("team"));
-                        notify("تم تحديث الصلاحية");
-                      } catch (err) {
-                        notify((err as Error).message, true);
-                      } finally {
-                        setRoleBusy(false);
-                      }
-                    }}
-                  >
-                    <option value="manager">مدير</option>
-                    <option value="employee">موظف</option>
-                  </select>
-                </div>
-              ))}
-          <h3>إنشاء حساب دخول</h3>
-          <p className="field-hint">اختر موظفًا لإعداد حسابه وصلاحيته.</p>
-          {data.employees
-            .filter((e) => !e.archived_at && !e.user_id)
-            .map((e, i) => (
-              <div className="account-row" key={e.id}>
-                <div className="person-cell">
-                  <Avatar name={e.name} small index={i} />
-                  <strong>{e.name}</strong>
-                </div>
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={!demo && !data.settings.server_ready}
-                  onClick={() => createAccount(e)}
-                >
-                  إعداد
-                  <ChevronLeft size={14} />
-                </button>
-              </div>
-            ))}
-          {!demo && !data.settings.server_ready && (
-            <p className="field-hint">
-              إنشاء الحسابات يحتاج مفتاح إدارة Supabase على الخادم.
-            </p>
-          )}
+          {(() => {
+            const profileByUser = new Map(team.map((p) => [p.id, p]));
+            const visible = [...data.employees]
+              .filter((e) => !e.archived_at)
+              .sort((a, b) => a.name.localeCompare(b.name, "ar"));
+            return (
+              <>
+                <h3>الموظفون والصلاحيات</h3>
+                <p className="field-hint">
+                  عدّل دور الحساب وصلاحية المتابع مباشرة باستخدام بيانات الموظف المحفوظة.
+                </p>
+                {visible.length === 0 && (
+                  <p className="field-hint">
+                    لا يوجد موظفون بعد. أضفهم من صفحة «الموظفون» ثم عد هنا لضبط
+                    الصلاحيات.
+                  </p>
+                )}
+                {visible.map((e, i) => {
+                  const account = e.user_id
+                    ? profileByUser.get(e.user_id)
+                    : undefined;
+                  const isSelf = account?.id === data.profile.id;
+                  return (
+                    <div className="account-row" key={e.id}>
+                      <div className="person-cell">
+                        <Avatar name={e.name} small index={i} />
+                        <div className="account-person">
+                          <strong>{e.name}</strong>
+                          <span className="role-label">
+                            {account
+                              ? isSelf || account.role === "owner"
+                                ? "المالك — أنت"
+                                : `${roleName(account.role)}${account.can_follow_tasks ? " + متابع" : ""}`
+                              : e.user_id
+                                ? "حساب الدخول مرتبط"
+                                : "لا يوجد حساب دخول مرتبط"}
+                          </span>
+                        </div>
+                      </div>
+                      {account && !isSelf && account.role !== "owner" ? (
+                        <select
+                          disabled={roleBusy}
+                          aria-label={`صلاحية ${e.name}`}
+                          value={account.role}
+                          onChange={async (ev) => {
+                            setRoleBusy(true);
+                            try {
+                              await api("team", "PATCH", {
+                                id: account.id,
+                                role: ev.target.value,
+                              });
+                              setTeam(await api("team"));
+                              notify("تم تحديث الصلاحية");
+                            } catch (err) {
+                              notify((err as Error).message, true);
+                            } finally {
+                              setRoleBusy(false);
+                            }
+                          }}
+                        >
+                          <option value="management">إدارة — متابعة</option>
+                          <option value="supervisor">مسؤول مباشر</option>
+                          <option value="employee">موظف</option>
+                        </select>
+                      ) : account && isSelf ? (
+                        <span className="role-label">{roleName(account.role)}{account.can_follow_tasks ? " + متابع" : ""}</span>
+                      ) : account && !isSelf ? (
+                        <span className="role-label">المالك</span>
+                      ) : (
+                        <span className="role-label">
+                          {e.user_id
+                            ? "جارٍ تحميل صلاحيات الحساب…"
+                            : "لا يوجد حساب دخول مرتبط"}
+                        </span>
+                      )}
+                      {account && account.role !== "owner" && !isSelf && (
+                        <label className="checkbox-line compact">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(account.can_follow_tasks)}
+                            disabled={roleBusy}
+                            onChange={async (ev) => {
+                              setRoleBusy(true);
+                              try {
+                                await api("team", "PATCH", { id: account.id, can_follow_tasks: ev.target.checked });
+                                setTeam(await api("team"));
+                                notify("تم تحديث صلاحية المتابع");
+                              } catch (err) {
+                                notify((err as Error).message, true);
+                              } finally {
+                                setRoleBusy(false);
+                              }
+                            }}
+                          />
+                          متابع
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            );
+          })()}
         </section>
         <div className="settings-footnote">
           <ShieldCheck size={19} />
           <p>
-            صلاحيات الويب محصورة بالمالك والمدير. الموظفون يعملون عبر تطبيق
-            الدسكتوب.
+            تعديل الأدوار وصلاحية المتابع يتم من الحسابات الحالية دون طلب بيانات
+            جديدة من الموظف.
           </p>
         </div>
       </aside>
+      )}
     </div>
   );
 }

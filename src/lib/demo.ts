@@ -51,6 +51,7 @@ export function createDemo(): AppData {
       "متابعة التنفيذ وفق المتطلبات المعتمدة.",
     ][i % 2],
     employee_id: employees[i % 6].id,
+    assignee_ids: [employees[i % 6].id],
     assigned_by: "demo-owner",
     status: (
       [
@@ -93,7 +94,12 @@ export function createDemo(): AppData {
       })),
   );
   return {
-    profile: { id: "demo-owner", name: "مصطفى", role: "owner" },
+    profile: {
+      id: "demo-owner",
+      name: "مصطفى",
+      role: "owner",
+      can_follow_tasks: false,
+    },
     employees,
     tasks,
     attendance,
@@ -126,6 +132,7 @@ export function createDemo(): AppData {
       organization_name: "المصطفى",
       work_days: [0, 1, 2, 3, 4],
       telegram_enabled: false,
+      idle_threshold_minutes: 10,
       bot_configured: false,
       server_ready: false,
     },

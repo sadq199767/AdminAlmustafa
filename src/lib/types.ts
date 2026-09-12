@@ -1,4 +1,12 @@
-export type Role = "owner" | "manager" | "employee";
+export type Role = "owner" | "management" | "supervisor" | "employee";
+export type TaskComment = {
+  id: string;
+  task_id: string;
+  author_id: string;
+  author_name: string;
+  body: string;
+  created_at: string;
+};
 export type TaskStatus = "todo" | "in_progress" | "done";
 export type Employee = {
   id: string;
@@ -10,9 +18,18 @@ export type Employee = {
   daily_hours: number;
   joined_on: string;
   archived_at: string | null;
+  last_seen_at?: string | null;
+  task_color?: string | null;
+  supervisor_id?: string | null;
   created_at: string;
+  email?: string | null;
 };
-export type Profile = { id: string; name: string; role: Role };
+export type Profile = {
+  id: string;
+  name: string;
+  role: Role;
+  can_follow_tasks: boolean;
+};
 export type Task = {
   id: string;
   title: string;
@@ -25,6 +42,7 @@ export type Task = {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  assignee_ids: string[];
 };
 export type Attendance = {
   id: string;
@@ -56,6 +74,9 @@ export type Settings = {
   organization_name: string;
   work_days: number[];
   telegram_enabled: boolean;
+  idle_threshold_minutes: number;
+  system_suspended?: boolean;
+  system_suspend_reason?: string;
   bot_configured?: boolean;
   server_ready?: boolean;
 };

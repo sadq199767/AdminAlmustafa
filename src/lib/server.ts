@@ -41,14 +41,29 @@ export async function authorize(request: NextRequest, allowEmployee = false) {
   } = await db.auth.getUser(token);
   if (error || !user)
     throw new ApiError(401, "انتهت الجلسة. سجل الدخول مجددًا.");
-  const { data: profile } = await db
+  let { data: profile, error: profileError } = await db
     .from("profiles")
-    .select("id,name,role")
+    .select("id,name,role,can_follow_tasks")
     .eq("id", user.id)
     .single();
+  // يبقي تسجيل دخول الإدارة عاملاً قبل تطبيق ترقية العمود الجديد.
+  if (profileError?.code === "42703") {
+    const fallback = await db
+      .from("profiles")
+      .select("id,name,role")
+      .eq("id", user.id)
+      .single();
+    profile = fallback.data
+      ? { ...fallback.data, can_follow_tasks: false }
+      : null;
+    profileError = fallback.error;
+  }
   if (
+    profileError ||
     !profile ||
-    (!allowEmployee && !["owner", "manager"].includes(profile.role))
+    (!allowEmployee &&
+      !["owner", "management", "supervisor"].includes(profile.role) &&
+      !profile.can_follow_tasks)
   )
     throw new ApiError(403, "هذا الحساب لا يملك صلاحية استخدام لوحة الإدارة.");
   const { data: employee } = await db
@@ -82,4 +97,22 @@ export function fail(error: unknown) {
 export function assertDb(error: { message: string } | null) {
   if (error)
     throw new ApiError(400, "تعذّر حفظ البيانات. تحقق من المدخلات والصلاحيات.");
+}
+export async function assertSystemRunning() {
+  if (!serviceReady()) return;
+  const { data, error } = await serviceClient()
+    .from("app_settings")
+    .select("system_suspended, system_suspend_reason")
+    .eq("id", 1)
+    .single();
+  if (error) return;
+  if (data?.system_suspended) {
+    const reason = (data.system_suspend_reason || "").trim();
+    throw new ApiError(
+      423,
+      reason
+        ? `النظام موقوف مؤقتًا من قبل المالك: ${reason}`
+        : "النظام موقوف مؤقتًا من قبل المالك. أعد المحاولة لاحقًا.",
+    );
+  }
 }

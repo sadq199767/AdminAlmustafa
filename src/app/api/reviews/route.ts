@@ -6,11 +6,13 @@ import {
   fail,
   ApiError,
   serviceClient,
+  assertSystemRunning,
 } from "@/lib/server";
 import { sendNotification } from "@/lib/telegram";
 export async function POST(req: NextRequest) {
   try {
     const { db, profile } = await authorize(req, true);
+    await assertSystemRunning();
     const input = z
       .object({
         task_id: z.string().uuid(),

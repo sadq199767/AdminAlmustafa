@@ -5,6 +5,7 @@ import {
   fail,
   ApiError,
   serviceClient,
+  assertSystemRunning,
 } from "@/lib/server";
 import { settingsSchema } from "@/lib/validation";
 import { encryptToken } from "@/lib/telegram";
@@ -13,6 +14,7 @@ export async function PATCH(req: NextRequest) {
     const { db, profile } = await authorize(req);
     if (profile.role !== "owner")
       throw new ApiError(403, "إعدادات النظام متاحة للمالك فقط.");
+    await assertSystemRunning();
     const body = await req.json();
     const input = settingsSchema.parse(body);
     if (body.bot_token) {

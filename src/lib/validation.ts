@@ -20,6 +20,7 @@ export const employeeSchema = z.object({
     .default(""),
   daily_hours: z.number().min(0.5).max(24),
   joined_on: date,
+  supervisor_id: z.string().uuid().nullable().optional().default(null),
 });
 export const createEmployeeSchema = employeeSchema
   .extend({
@@ -38,12 +39,16 @@ export const createEmployeeSchema = employeeSchema
 export const taskSchema = z.object({
   title: z.string().trim().min(3).max(200),
   description: z.string().max(5000).default(""),
-  employee_id: z.string().uuid(),
+  employee_id: z.string().uuid().optional(),
+  assignee_ids: z.array(z.string().uuid()).optional().default([]),
   priority: z.enum(["low", "medium", "high"]).default("medium"),
   due_date: date.nullable().default(null),
 });
 export const statusSchema = z.object({
   status: z.enum(["todo", "in_progress", "done"]),
+});
+export const commentSchema = z.object({
+  body: z.string().trim().min(1).max(2000),
 });
 export const settingsSchema = z.object({
   organization_name: z.string().trim().min(2).max(100),
@@ -53,6 +58,7 @@ export const settingsSchema = z.object({
     .max(7)
     .transform((v) => [...new Set(v)]),
   telegram_enabled: z.boolean(),
+  idle_threshold_minutes: z.number().int().min(1).max(60),
 });
 export const attendanceSchema = z
   .object({

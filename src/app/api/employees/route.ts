@@ -5,11 +5,15 @@ import {
   fail,
   ApiError,
   serviceClient,
+  assertSystemRunning,
 } from "@/lib/server";
 import { createEmployeeSchema } from "@/lib/validation";
 export async function POST(req: NextRequest) {
   try {
-    const { db } = await authorize(req);
+    const { db, profile } = await authorize(req);
+    if (!["owner", "supervisor"].includes(profile.role))
+      throw new ApiError(403, "إضافة الموظفين متاحة للمالك والمسؤول المباشر فقط.");
+    await assertSystemRunning();
     const { email, password, ...input } = createEmployeeSchema.parse(
       await req.json(),
     );

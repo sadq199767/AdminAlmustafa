@@ -46,7 +46,8 @@ export function employeeMetrics(
       required > 0 ? Math.round((attendance / 3600 / required) * 100) : 0,
     completed: data.tasks.filter(
       (t) =>
-        t.employee_id === employee.id &&
+        (t.employee_id === employee.id ||
+          t.assignee_ids.includes(employee.id)) &&
         t.status === "done" &&
         t.completed_at &&
         todayInBaghdad(new Date(t.completed_at)).startsWith(month),

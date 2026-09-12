@@ -3,13 +3,19 @@ import { authorize, fail, serviceClient, assertDb } from "@/lib/server";
 export async function GET(req: NextRequest) {
   try {
     await authorize(req, true);
-    const { data, error } = await serviceClient()
+    const client = serviceClient();
+    const { data: employees, error } = await client
       .from("employees")
-      .select("id,name,profession")
+      .select("id, name, profession")
       .is("archived_at", null)
       .order("name");
     assertDb(error);
-    return NextResponse.json(data, {
+    const entries = (employees ?? []).map((e) => ({
+      id: e.id,
+      name: e.name,
+      profession: e.profession ?? "",
+    }));
+    return NextResponse.json(entries, {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (e) {
