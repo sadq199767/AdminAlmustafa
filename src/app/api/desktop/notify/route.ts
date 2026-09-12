@@ -7,7 +7,7 @@ import {
   serviceReady,
   assertSystemRunning,
 } from "@/lib/server";
-import { sendNotification } from "@/lib/telegram";
+import { notifySupervisorActivity, sendNotification } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -81,11 +81,11 @@ export async function POST(req: NextRequest) {
     }).format(new Date());
 
     const message = buildText(body.event, body.detail, time);
-    const result = await sendNotification(
-      `${body.event}-${user.id}-${Date.now()}`,
-      employee.id,
-      message,
-    );
+    const stamp = `${body.event}-${user.id}-${Date.now()}`;
+    const result = await sendNotification(stamp, employee.id, message);
+    if (body.event !== "attendance_start" && body.event !== "attendance_end") {
+      void notifySupervisorActivity(employee.id, stamp, message);
+    }
     return NextResponse.json({ ok: true, sent: result === "sent" });
   } catch (e) {
     return fail(e);

@@ -251,6 +251,33 @@ export async function directSupervisorAlert(
     return "failed";
   }
 }
+export async function notifySupervisorActivity(
+  employeeId: string,
+  eventId: string,
+  text: string,
+) {
+  if (!serviceReady()) return "unconfigured";
+  try {
+    const { data: employee } = await serviceClient()
+      .from("employees")
+      .select("name, supervisor_id")
+      .eq("id", employeeId)
+      .is("archived_at", null)
+      .single();
+    if (
+      !employee?.supervisor_id ||
+      employee.supervisor_id === employeeId
+    )
+      return "unconfigured";
+    return await sendNotification(
+      `${eventId}-sup`,
+      employee.supervisor_id,
+      `من موظفك ${employee.name}:\n${text}`,
+    );
+  } catch {
+    return "failed";
+  }
+}
 export async function notifyAttendance(
   employeeId: string,
   opts: { isEnd: boolean; duration: string; time: string },
@@ -334,6 +361,27 @@ export async function notifyComment(
     const results = await Promise.all(
       [...recipientIds].map((id) => sendNotification(commentId, id, text)),
     );
+    if (serviceReady()) {
+      try {
+        const { data: cEmp } = await serviceClient()
+          .from("employees")
+          .select("id, name, supervisor_id")
+          .eq("user_id", commenter.id)
+          .is("archived_at", null)
+          .maybeSingle();
+        if (cEmp?.supervisor_id && cEmp.supervisor_id !== cEmp.id) {
+          results.push(
+            await sendNotification(
+              `${commentId}-sup`,
+              cEmp.supervisor_id,
+              `💬 موظفك ${cEmp.name} علّق على المهمة «${task.title}»\n${commenter.name}: ${snippet}`,
+            ),
+          );
+        }
+      } catch {
+        /* المسؤول المباشر إضافة — لن تُعطِّل إشعار التعليق */
+      }
+    }
     return results.includes("failed")
       ? "failed"
       : results.includes("sent")
@@ -387,6 +435,35 @@ export async function notifyTask(
     const results = await Promise.all(
       [...recipientIds].map((id) => sendNotification(event.id, id, text)),
     );
+    if (serviceReady() && recipientIds.size) {
+      try {
+        const { data: involved } = await serviceClient()
+          .from("employees")
+          .select("id, name, supervisor_id")
+          .in("id", [...recipientIds])
+          .is("archived_at", null);
+        const bySup = new Map<string, string[]>();
+        for (const emp of involved ?? []) {
+          if (emp.supervisor_id && emp.supervisor_id !== emp.id) {
+            const names = bySup.get(emp.supervisor_id) ?? [];
+            names.push(emp.name);
+            bySup.set(emp.supervisor_id, names);
+          }
+        }
+        let i = 0;
+        for (const [supId, names] of bySup) {
+          results.push(
+            await sendNotification(
+              `${event.id}-sup${i++}`,
+              supId,
+              `📋 مهمة «${task.title}» تخص موظفك: ${names.join("، ")}\nالحالة: ${status}\nبواسطة ${actor.name}`,
+            ),
+          );
+        }
+      } catch {
+        /* المسؤولون المباشرون إضافة — لن تُعطِّل إشعارات المهمة */
+      }
+    }
     return results.includes("failed")
       ? "failed"
       : results.includes("sent")
