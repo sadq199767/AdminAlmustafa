@@ -37,31 +37,45 @@ export async function PATCH(req: NextRequest, ctx: Context) {
     const password =
       typeof body.password === "string" && body.password ? body.password : undefined;
     const data = employeeSchema.parse(body);
+    const admin = serviceReady() ? serviceClient() : null;
+    const writeDb = admin ?? db;
+
+    const { data: employee, error: employeeError } = await writeDb
+      .from("employees")
+      .select("user_id, supervisor_id")
+      .eq("id", id)
+      .single();
+    assertDb(employeeError);
+
+    const updateData: Partial<typeof data> = { ...data };
+    if (updateData.supervisor_id === employee?.supervisor_id)
+      delete updateData.supervisor_id;
 
     if (email !== undefined || password !== undefined) {
-      if (!serviceReady()) throw new ApiError(503, "مفتاح الخادم غير متاح.");
-      const { data: employee, error: employeeError } = await db
-        .from("employees")
-        .select("user_id, supervisor_id")
-        .eq("id", id)
-        .single();
-      assertDb(employeeError);
+      if (!admin) throw new ApiError(503, "مفتاح الخادم غير متاح.");
       if (employee?.user_id) {
-        const admin = serviceClient();
-        const { error: authError } = await admin.auth.admin.updateUserById(
-          employee.user_id,
-          {
-            ...(email !== undefined ? { email, email_confirm: true } : {}),
-            ...(password ? { password } : {}),
-          },
-        );
-        if (authError) {
-          if (["email_exists", "user_already_exists"].includes(authError.code || ""))
-            throw new ApiError(409, "البريد الإلكتروني مستخدم لحساب آخر. اختر بريدًا مختلفًا.");
-          throw new ApiError(400, "تعذّر تعديل حساب الدخول. تحقق من البريد وكلمة المرور ثم حاول مجددًا.");
+        const { data: currentAccount, error: accountLookupError } =
+          await admin.auth.admin.getUserById(employee.user_id);
+        if (accountLookupError)
+          throw new ApiError(400, "تعذّر قراءة حساب الدخول المرتبط بالموظف.");
+        const authChanges = {
+          ...(email !== undefined && currentAccount.user.email !== email
+            ? { email, email_confirm: true }
+            : {}),
+          ...(password ? { password } : {}),
+        };
+        if (Object.keys(authChanges).length) {
+          const { error: authError } = await admin.auth.admin.updateUserById(
+            employee.user_id,
+            authChanges,
+          );
+          if (authError) {
+            if (["email_exists", "user_already_exists"].includes(authError.code || ""))
+              throw new ApiError(409, "البريد الإلكتروني مستخدم لحساب آخر. اختر بريدًا مختلفًا.");
+            throw new ApiError(400, "تعذّر تعديل حساب الدخول. تحقق من البريد وكلمة المرور ثم حاول مجددًا.");
+          }
         }
       } else if (email && password) {
-        const admin = serviceClient();
         const { data: account, error: accountError } =
           await admin.auth.admin.createUser({
             email,
@@ -90,9 +104,9 @@ export async function PATCH(req: NextRequest, ctx: Context) {
       }
     }
 
-    const { data: updated, error } = await db
+    const { data: updated, error } = await writeDb
       .from("employees")
-      .update(data)
+      .update(updateData)
       .eq("id", id)
       .select()
       .single();
