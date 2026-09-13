@@ -15,13 +15,14 @@ const employee = {
   profession: "مصمم",
   telegram_id: "",
   daily_hours: 8,
+  work_days: [0, 1, 2, 3, 4],
   joined_on: "2026-09-01",
   archived_at: null,
   created_at: "2026-09-01T00:00:00Z",
 };
 test("required hours exclude weekends and future dates", () => {
   assert.equal(
-    requiredHours(employee, "2026-09", [0, 1, 2, 3, 4], "2026-09-07"),
+    requiredHours(employee, "2026-09", "2026-09-07"),
     40,
   );
 });
@@ -30,7 +31,6 @@ test("required hours start on employee join date", () => {
     requiredHours(
       { ...employee, joined_on: "2026-09-06" },
       "2026-09",
-      [0, 1, 2, 3, 4],
       "2026-09-07",
     ),
     16,
@@ -38,8 +38,18 @@ test("required hours start on employee join date", () => {
 });
 test("future month has no required hours", () => {
   assert.equal(
-    requiredHours(employee, "2026-10", [0, 1, 2, 3, 4], "2026-09-07"),
+    requiredHours(employee, "2026-10", "2026-09-07"),
     0,
+  );
+});
+test("required hours use each employee's own days and daily hours", () => {
+  assert.equal(
+    requiredHours(
+      { ...employee, daily_hours: 6, work_days: [1, 3] },
+      "2026-09",
+      "2026-09-10",
+    ),
+    18,
   );
 });
 test("Baghdad dates use UTC+3 at the midnight boundary", () => {

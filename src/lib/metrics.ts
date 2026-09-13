@@ -10,9 +10,12 @@ export const hours = (seconds: number) => Math.round(seconds / 360) / 10;
 export function requiredHours(
   employee: Employee,
   month: string,
-  workDays: number[],
   today = todayInBaghdad(),
+  fallbackWorkDays = [0, 1, 2, 3, 4],
 ) {
+  const workDays = employee.work_days?.length
+    ? employee.work_days
+    : fallbackWorkDays;
   const [year, mo] = month.split("-").map(Number);
   const days = new Date(Date.UTC(year, mo, 0)).getUTCDate();
   let count = 0;
@@ -37,11 +40,17 @@ export function employeeMetrics(
   );
   const attendance = logs.reduce((s, a) => s + a.attendance_seconds, 0);
   const active = logs.reduce((s, a) => s + a.active_seconds, 0);
-  const required = requiredHours(employee, month, data.settings.work_days);
+  const required = requiredHours(
+    employee,
+    month,
+    todayInBaghdad(),
+    data.settings.work_days,
+  );
   return {
     attendance,
     active,
     required,
+    requiredDays: required / employee.daily_hours,
     percent:
       required > 0 ? Math.round((attendance / 3600 / required) * 100) : 0,
     completed: data.tasks.filter(

@@ -32,6 +32,10 @@ test("rejects invalid employee hours and impossible dates", () => {
       .success,
     false,
   );
+  assert.equal(
+    employeeSchema.safeParse({ ...e, daily_hours: 8, work_days: [] }).success,
+    false,
+  );
 });
 test("rejects an empty workweek", () => {
   assert.equal(

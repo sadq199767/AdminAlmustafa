@@ -28,6 +28,7 @@ export function createDemo(): AppData {
     phone: "",
     telegram_id: "",
     daily_hours: 8,
+    work_days: [0, 1, 2, 3, 4],
     joined_on: `${month}-01`,
     archived_at: null,
     created_at: now,

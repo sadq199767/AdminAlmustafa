@@ -100,6 +100,15 @@ const statusNames: Record<TaskStatus, string> = {
   done: "منجز",
 };
 const priorityNames = { low: "منخفضة", medium: "متوسطة", high: "عالية" };
+const weekDayNames = [
+  "الأحد",
+  "الإثنين",
+  "الثلاثاء",
+  "الأربعاء",
+  "الخميس",
+  "الجمعة",
+  "السبت",
+];
 const num = (n: number) =>
   new Intl.NumberFormat("ar-IQ-u-nu-latn", { maximumFractionDigits: 1 }).format(
     n,
@@ -305,6 +314,9 @@ function EmployeeDetails({
   const supervisor = data.employees.find(
     (candidate) => candidate.id === employee.supervisor_id,
   );
+  const employeeWorkDays = employee.work_days?.length
+    ? employee.work_days
+    : data.settings.work_days;
   const online = isEmployeeOnline(employee, data.attendance, today);
   const taskIds = new Set(tasks.map((task) => task.id));
   const recentActivity = data.activities
@@ -377,6 +389,12 @@ function EmployeeDetails({
             <span>تاريخ الانضمام</span>
             <strong>{fullDateLabel(employee.joined_on)}</strong>
           </div>
+          <div className="workdays-detail">
+            <span>أيام العمل الأسبوعية</span>
+            <strong>
+              {employeeWorkDays.map((day) => weekDayNames[day]).join("، ")}
+            </strong>
+          </div>
         </div>
       </section>
 
@@ -391,11 +409,19 @@ function EmployeeDetails({
           </span>
         </div>
         <div className="employee-performance-grid">
+          <div className="employee-performance-card required-hours-card">
+            <CalendarDays size={18} />
+            <span>المطلوب حتى اليوم</span>
+            <strong>{num(metrics.required)} س</strong>
+            <small>
+              {num(metrics.requiredDays)} أيام × {num(employee.daily_hours)} س
+            </small>
+          </div>
           <div className="employee-performance-card">
             <Clock3 size={18} />
-            <span>ساعات الدوام</span>
+            <span>الدوام المسجل</span>
             <strong>{num(hours(metrics.attendance))} س</strong>
-            <small>المطلوب {num(metrics.required)} س</small>
+            <small>{num(attendanceDays)} أيام حضور</small>
           </div>
           <div className="employee-performance-card">
             <Timer size={18} />
@@ -918,9 +944,14 @@ export default function AdminApp({
       phone: String(values.get("phone")),
       telegram_id: String(values.get("telegram_id")),
       daily_hours: Number(values.get("daily_hours")),
+      work_days: values.getAll("work_day").map((value) => Number(value)),
       joined_on: String(values.get("joined_on")),
       supervisor_id: String(values.get("supervisor_id") || "") || null,
     };
+    if (!input.work_days.length) {
+      notify("حدد يوم عمل واحدًا على الأقل للموظف.", true);
+      return;
+    }
     void mutate(async () => {
       const existing = modal?.type === "employee" ? modal.employee : undefined;
       if (demo) {
@@ -2594,6 +2625,30 @@ export default function AdminApp({
                       required
                     />
                   </label>
+                  <div className="employee-workdays-field">
+                    <span className="field-label">
+                      أيام العمل الأسبوعية
+                      <small>تُستخدم مع الساعات اليومية لحساب المطلوب حتى اليوم</small>
+                    </span>
+                    <div className="employee-workdays-options">
+                      {weekDayNames.map((day, index) => (
+                        <label className="employee-workday-option" key={day}>
+                          <input
+                            type="checkbox"
+                            name="work_day"
+                            value={index}
+                            defaultChecked={(
+                              modal.employee?.work_days ?? data.settings.work_days
+                            ).includes(index)}
+                          />
+                          <span>
+                            {day}
+                            <Check size={13} />
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                   <label>
                     المسؤول المباشر
                     <select name="supervisor_id" defaultValue={modal.employee?.supervisor_id ?? ""}>

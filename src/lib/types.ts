@@ -17,6 +17,7 @@ export type Employee = {
   profession: string;
   telegram_id: string;
   daily_hours: number;
+  work_days?: number[];
   joined_on: string;
   archived_at: string | null;
   last_seen_at?: string | null;

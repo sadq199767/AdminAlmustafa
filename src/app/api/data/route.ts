@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
             phone: "",
             telegram_id: "",
             daily_hours: 0,
+            work_days: [0, 1, 2, 3, 4],
             joined_on: "",
             archived_at: null,
             created_at: "",

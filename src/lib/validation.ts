@@ -8,6 +8,11 @@ const date = z
       new Date(v).toISOString().slice(0, 10) === v,
     "التاريخ غير صالح",
   );
+const workDaysSchema = z
+  .array(z.number().int().min(0).max(6))
+  .min(1)
+  .max(7)
+  .transform((value) => [...new Set(value)]);
 export const employeeSchema = z.object({
   name: z.string().trim().min(2).max(100),
   phone: z.string().trim().max(30).default(""),
@@ -19,6 +24,7 @@ export const employeeSchema = z.object({
     .max(30)
     .default(""),
   daily_hours: z.number().min(0.5).max(24),
+  work_days: workDaysSchema.optional(),
   joined_on: date,
   supervisor_id: z.string().uuid().nullable().optional().default(null),
 });
@@ -52,11 +58,7 @@ export const commentSchema = z.object({
 });
 export const settingsSchema = z.object({
   organization_name: z.string().trim().min(2).max(100),
-  work_days: z
-    .array(z.number().int().min(0).max(6))
-    .min(1)
-    .max(7)
-    .transform((v) => [...new Set(v)]),
+  work_days: workDaysSchema,
   telegram_enabled: z.boolean(),
   idle_threshold_minutes: z.number().int().min(1).max(60),
 });
