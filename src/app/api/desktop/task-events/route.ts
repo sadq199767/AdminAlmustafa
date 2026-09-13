@@ -7,12 +7,12 @@ import {
   fail,
   serviceClient,
 } from "@/lib/server";
-import { notifyComment, notifyTask } from "@/lib/telegram";
+import { notifyComment, notifyTask, sendNotification } from "@/lib/telegram";
 import type { Task } from "@/lib/types";
 
 const eventSchema = z.object({
   task_id: z.string().uuid(),
-  kind: z.enum(["created", "comment"]),
+  kind: z.enum(["created", "comment", "assignee_done"]),
   comment_id: z.string().uuid().optional(),
 });
 
@@ -38,6 +38,48 @@ export async function POST(req: NextRequest) {
         "أسند إليك مهمة جديدة",
       );
       return NextResponse.json({ ok: true, notification });
+    }
+
+    if (input.kind === "assignee_done") {
+      const sdb = serviceClient();
+      const { data: actorEmp } = await sdb
+        .from("employees")
+        .select("id, name")
+        .eq("user_id", profile.id)
+        .is("archived_at", null)
+        .maybeSingle();
+      if (!actorEmp)
+        throw new ApiError(403, "الموظف غير مسجل في المنصة.");
+      const { data: assignees } = await sdb
+        .from("task_assignees")
+        .select("employee_id")
+        .eq("task_id", task.id);
+      const recipients = new Set<string>();
+      for (const a of assignees ?? []) recipients.add(a.employee_id);
+      if (task.assigned_by && task.assigned_by !== profile.id) {
+        const { data: assigner } = await sdb
+          .from("employees")
+          .select("id")
+          .eq("user_id", task.assigned_by)
+          .maybeSingle();
+        if (assigner) recipients.add(assigner.id);
+      }
+      recipients.delete(actorEmp.id);
+      const text = `✅ ${actorEmp.name} أنهى عمله على المهمة «${task.title}»`;
+      const stamp = `assignee-done-${task.id}-${profile.id}-${Date.now()}`;
+      const results = await Promise.all(
+        [...recipients].map((id, i) =>
+          sendNotification(`${stamp}-${i}`, id, text),
+        ),
+      );
+      return NextResponse.json({
+        ok: true,
+        notification: results.includes("failed")
+          ? "failed"
+          : results.includes("sent")
+            ? "sent"
+            : results[0],
+      });
     }
 
     if (!input.comment_id)
