@@ -335,7 +335,14 @@ function EmployeeDetails({
 
   return (
     <div className="employee-profile">
-      <header className="employee-profile-hero">
+      <header
+        className="employee-profile-hero"
+        style={
+          employee.task_color
+            ? ({ "--emp-accent": employee.task_color } as CSSProperties)
+            : undefined
+        }
+      >
         <div className="employee-profile-avatar">
           <Avatar name={employee.name} />
           <StatusDot online={online} />
