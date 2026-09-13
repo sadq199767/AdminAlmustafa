@@ -47,6 +47,28 @@ export async function PATCH(
       .eq("user_id", user.id)
       .is("archived_at", null)
       .maybeSingle();
+    if (actorEmployee) {
+      const { error } = await db.rpc("set_assignee_status", {
+        p_task_id: id,
+        p_status: input.status,
+      });
+      if (!error) {
+        const { data: fresh, error: freshErr } = await db
+          .from("tasks")
+          .select("*")
+          .eq("id", id)
+          .single();
+        assertDb(freshErr);
+        const notification = await notifyTask(
+          db,
+          fresh,
+          profile,
+          "حدّث حالة المهمة",
+        );
+        return NextResponse.json({ ...fresh, notification });
+      }
+      if (error.code !== "42501") assertDb(error);
+    }
     const completedBy =
       input.status === "done" ? actorEmployee?.id ?? null : null;
     const { data, error } = await db
