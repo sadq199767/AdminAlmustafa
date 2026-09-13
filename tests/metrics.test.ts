@@ -20,36 +20,25 @@ const employee = {
   archived_at: null,
   created_at: "2026-09-01T00:00:00Z",
 };
-test("required hours exclude weekends and future dates", () => {
-  assert.equal(
-    requiredHours(employee, "2026-09", "2026-09-07"),
-    40,
-  );
+test("required hours cover every scheduled day in the selected month", () => {
+  assert.equal(requiredHours(employee, "2026-09"), 176);
 });
 test("required hours start on employee join date", () => {
   assert.equal(
-    requiredHours(
-      { ...employee, joined_on: "2026-09-06" },
-      "2026-09",
-      "2026-09-07",
-    ),
-    16,
+    requiredHours({ ...employee, joined_on: "2026-09-06" }, "2026-09"),
+    152,
   );
 });
-test("future month has no required hours", () => {
-  assert.equal(
-    requiredHours(employee, "2026-10", "2026-09-07"),
-    0,
-  );
+test("future month uses the complete employee schedule", () => {
+  assert.equal(requiredHours(employee, "2026-10"), 168);
 });
 test("required hours use each employee's own days and daily hours", () => {
   assert.equal(
     requiredHours(
       { ...employee, daily_hours: 6, work_days: [1, 3] },
       "2026-09",
-      "2026-09-10",
     ),
-    18,
+    54,
   );
 });
 test("Baghdad dates use UTC+3 at the midnight boundary", () => {
