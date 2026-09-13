@@ -1,4 +1,68 @@
-import type { AppData, Employee } from "./types";
+import type { AppData, Attendance, Employee } from "./types";
+
+const PRESENCE_TIMEOUT_MS = 180_000;
+
+export function isEmployeeOnline(
+  employee: Pick<Employee, "last_seen_at">,
+  now = Date.now(),
+) {
+  if (!employee.last_seen_at) return false;
+  const seenAt = Date.parse(employee.last_seen_at);
+  const age = now - seenAt;
+  return Number.isFinite(seenAt) && age >= -60_000 && age < PRESENCE_TIMEOUT_MS;
+}
+
+export type AttendanceDay = {
+  work_date: string;
+  attendance_seconds: number;
+  active_seconds: number;
+  started_at: string;
+  ended_at: string | null;
+  sessions: Attendance[];
+};
+
+export function attendanceByDay(entries: Attendance[]): AttendanceDay[] {
+  const grouped = new Map<string, Attendance[]>();
+  for (const entry of entries) {
+    const sessions = grouped.get(entry.work_date) ?? [];
+    sessions.push(entry);
+    grouped.set(entry.work_date, sessions);
+  }
+
+  return [...grouped.entries()]
+    .map(([work_date, entriesForDay]) => {
+      const sessions = [...entriesForDay].sort((a, b) =>
+        a.started_at.localeCompare(b.started_at),
+      );
+      const hasOpenSession = sessions.some((entry) => !entry.ended_at);
+      const endedAt = hasOpenSession
+        ? null
+        : sessions.reduce<string | null>(
+            (latest, entry) =>
+              !latest || (entry.ended_at && entry.ended_at > latest)
+                ? entry.ended_at
+                : latest,
+            null,
+          );
+
+      return {
+        work_date,
+        attendance_seconds: sessions.reduce(
+          (total, entry) => total + entry.attendance_seconds,
+          0,
+        ),
+        active_seconds: sessions.reduce(
+          (total, entry) => total + entry.active_seconds,
+          0,
+        ),
+        started_at: sessions[0].started_at,
+        ended_at: endedAt,
+        sessions,
+      };
+    })
+    .sort((a, b) => b.work_date.localeCompare(a.work_date));
+}
+
 export const todayInBaghdad = (date = new Date()) =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Baghdad",

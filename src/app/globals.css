@@ -3786,6 +3786,66 @@ textarea {
 .employee-attendance-table td:first-child {
   font-weight: 500;
 }
+.employee-attendance-day-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  color: var(--text);
+  text-align: right;
+}
+.employee-attendance-day-button > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.employee-attendance-day-button small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 400;
+}
+.employee-attendance-day-button svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+}
+.employee-attendance-day-button[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.employee-attendance-day:hover td {
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
+}
+.employee-attendance-sessions td {
+  padding: 0 !important;
+  background: var(--surface-soft);
+}
+.attendance-session-list {
+  display: grid;
+  gap: 1px;
+  padding: 8px 13px 8px 28px;
+}
+.attendance-session-list > div {
+  display: grid;
+  grid-template-columns: 72px 66px 16px 66px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 11px;
+}
+.attendance-session-list span,
+.attendance-session-list small {
+  color: var(--muted);
+}
+.attendance-session-list strong {
+  font-weight: 500;
+}
+.attendance-session-list svg {
+  color: var(--muted);
+}
 .live-work {
   color: #5c8b67;
   background: #e9f3e9;

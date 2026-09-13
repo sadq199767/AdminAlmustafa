@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  attendanceByDay,
   requiredHours,
   hours,
+  isEmployeeOnline,
   todayInBaghdad,
   employeeMetrics,
 } from "../src/lib/metrics";
@@ -43,6 +45,49 @@ test("required hours use each employee's own days and daily hours", () => {
 });
 test("Baghdad dates use UTC+3 at the midnight boundary", () => {
   assert.equal(todayInBaghdad(new Date("2026-08-31T22:00:00Z")), "2026-09-01");
+});
+test("online status only follows a recent desktop heartbeat", () => {
+  const now = Date.parse("2026-09-13T12:00:00Z");
+  assert.equal(
+    isEmployeeOnline({ last_seen_at: "2026-09-13T11:59:00Z" }, now),
+    true,
+  );
+  assert.equal(
+    isEmployeeOnline({ last_seen_at: "2026-09-13T11:55:00Z" }, now),
+    false,
+  );
+  assert.equal(isEmployeeOnline({ last_seen_at: null }, now), false);
+});
+test("attendance sessions are combined into one row per day", () => {
+  const sessions = [
+    {
+      id: "late",
+      employee_id: "e",
+      work_date: "2026-09-13",
+      attendance_seconds: 7200,
+      active_seconds: 6000,
+      started_at: "2026-09-13T10:00:00Z",
+      ended_at: "2026-09-13T12:00:00Z",
+      updated_at: "",
+    },
+    {
+      id: "early",
+      employee_id: "e",
+      work_date: "2026-09-13",
+      attendance_seconds: 3600,
+      active_seconds: 3000,
+      started_at: "2026-09-13T07:00:00Z",
+      ended_at: "2026-09-13T08:00:00Z",
+      updated_at: "",
+    },
+  ];
+  const result = attendanceByDay(sessions);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].attendance_seconds, 10800);
+  assert.equal(result[0].active_seconds, 9000);
+  assert.equal(result[0].started_at, "2026-09-13T07:00:00Z");
+  assert.equal(result[0].ended_at, "2026-09-13T12:00:00Z");
+  assert.deepEqual(result[0].sessions.map((entry) => entry.id), ["early", "late"]);
 });
 test("attendance and productive time stay separate, and task completion uses Baghdad month", () => {
   const d = createDemo();

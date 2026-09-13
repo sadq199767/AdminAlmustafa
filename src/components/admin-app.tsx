@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   LayoutDashboard,
@@ -56,7 +56,13 @@ import type {
   Role,
 } from "@/lib/types";
 import { createDemo } from "@/lib/demo";
-import { employeeMetrics, hours, todayInBaghdad } from "@/lib/metrics";
+import {
+  attendanceByDay,
+  employeeMetrics,
+  hours,
+  isEmployeeOnline,
+  todayInBaghdad,
+} from "@/lib/metrics";
 import { configured, supabase } from "@/lib/supabase";
 import { ThemeToggle } from "@/components/theme-provider";
 import { NotificationBell } from "@/components/notification-bell";
@@ -188,19 +194,6 @@ function AssigneeChips({
     </span>
   );
 }
-function isEmployeeOnline(
-  emp: { last_seen_at?: string | null; id: string },
-  attendance: { employee_id: string; work_date: string; ended_at: string | null }[],
-  todayStr: string,
-) {
-  if (emp.last_seen_at) {
-    const diff = Date.now() - new Date(emp.last_seen_at).getTime();
-    if (diff < 180_000) return true;
-  }
-  return attendance.some(
-    (a) => a.employee_id === emp.id && a.work_date === todayStr && !a.ended_at,
-  );
-}
 function StatusDot({ online }: { online: boolean }) {
   return (
     <span
@@ -272,12 +265,15 @@ function EmployeeDetails({
 }) {
   const metrics = employeeMetrics(data, employee, month);
   const today = todayInBaghdad();
-  const attendance = data.attendance
-    .filter(
+  const attendance = attendanceByDay(
+    data.attendance.filter(
       (entry) =>
         entry.employee_id === employee.id && entry.work_date.startsWith(month),
-    )
-    .sort((a, b) => b.work_date.localeCompare(a.work_date));
+    ),
+  );
+  const [expandedAttendanceDay, setExpandedAttendanceDay] = useState<string | null>(
+    null,
+  );
   const tasks = data.tasks.filter(
     (task) =>
       task.employee_id === employee.id ||
@@ -306,15 +302,14 @@ function EmployeeDetails({
       todayInBaghdad(new Date(completedAt)).slice(0, 7) === month,
     );
   }).length;
-  const attendanceDays = new Set(attendance.map((entry) => entry.work_date))
-    .size;
+  const attendanceDays = attendance.length;
   const activityPercent = metrics.attendance
     ? Math.round((metrics.active / metrics.attendance) * 100)
     : 0;
   const employeeWorkDays = employee.work_days?.length
     ? employee.work_days
     : data.settings.work_days;
-  const online = isEmployeeOnline(employee, data.attendance, today);
+  const online = isEmployeeOnline(employee);
   const taskIds = new Set(tasks.map((task) => task.id));
   const recentActivity = data.activities
     .filter((entry) => taskIds.has(entry.task_id))
@@ -545,29 +540,74 @@ function EmployeeDetails({
             <table className="employee-attendance-table">
               <thead>
                 <tr>
-                  <th>التاريخ</th>
-                  <th>بداية الدوام</th>
-                  <th>نهاية الدوام</th>
-                  <th>مدة الدوام</th>
-                  <th>العمل الفعلي</th>
+                  <th>اليوم</th>
+                  <th>أول دخول</th>
+                  <th>آخر خروج</th>
+                  <th>إجمالي الدوام</th>
+                  <th>إجمالي العمل الفعلي</th>
                 </tr>
               </thead>
               <tbody>
-                {attendance.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>{fullDateLabel(entry.work_date)}</td>
-                    <td>{timeLabel(entry.started_at)}</td>
-                    <td>
-                      {entry.ended_at ? (
-                        timeLabel(entry.ended_at)
-                      ) : (
-                        <span className="live-work">مستمر الآن</span>
+                {attendance.map((day) => {
+                  const expanded = expandedAttendanceDay === day.work_date;
+                  return (
+                    <Fragment key={day.work_date}>
+                      <tr className="employee-attendance-day">
+                        <td>
+                          <button
+                            type="button"
+                            className="employee-attendance-day-button"
+                            aria-expanded={expanded}
+                            onClick={() =>
+                              setExpandedAttendanceDay(expanded ? null : day.work_date)
+                            }
+                          >
+                            <span>
+                              {fullDateLabel(day.work_date)}
+                              <small>
+                                {num(day.sessions.length)} {day.sessions.length === 1 ? "جلسة" : "جلسات"}
+                              </small>
+                            </span>
+                            <ChevronDown size={15} />
+                          </button>
+                        </td>
+                        <td>{timeLabel(day.started_at)}</td>
+                        <td>
+                          {day.ended_at ? (
+                            timeLabel(day.ended_at)
+                          ) : (
+                            <span className="live-work">مستمر الآن</span>
+                          )}
+                        </td>
+                        <td>{num(hours(day.attendance_seconds))} س</td>
+                        <td>{num(hours(day.active_seconds))} س</td>
+                      </tr>
+                      {expanded && (
+                        <tr className="employee-attendance-sessions" key={`${day.work_date}-sessions`}>
+                          <td colSpan={5}>
+                            <div className="attendance-session-list">
+                              {day.sessions.map((session, index) => (
+                                <div key={session.id}>
+                                  <span>الجلسة {num(index + 1)}</span>
+                                  <strong>{timeLabel(session.started_at)}</strong>
+                                  <ChevronLeft size={13} />
+                                  <strong>
+                                    {session.ended_at
+                                      ? timeLabel(session.ended_at)
+                                      : "مستمر الآن"}
+                                  </strong>
+                                  <small>
+                                    دوام {num(hours(session.attendance_seconds))} س · عمل فعلي {num(hours(session.active_seconds))} س
+                                  </small>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td>{num(hours(entry.attendance_seconds))} س</td>
-                    <td>{num(hours(entry.active_seconds))} س</td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1862,11 +1902,7 @@ export default function AdminApp({
                                     <strong>
                                       {m.employee.name}
                                       <StatusDot
-                                        online={isEmployeeOnline(
-                                          m.employee,
-                                          data.attendance,
-                                          todayStr,
-                                        )}
+                                        online={isEmployeeOnline(m.employee)}
                                       />
                                     </strong>
                                     <small>{m.employee.profession}</small>
@@ -2054,11 +2090,7 @@ export default function AdminApp({
                                   <strong>
                                     {e.name}
                                     <StatusDot
-                                      online={isEmployeeOnline(
-                                        e,
-                                        data.attendance,
-                                        todayStr,
-                                      )}
+                                      online={isEmployeeOnline(e)}
                                     />
                                   </strong>
                                   <small>
