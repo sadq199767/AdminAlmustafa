@@ -411,7 +411,7 @@ function EmployeeDetails({
         <div className="employee-performance-grid">
           <div className="employee-performance-card required-hours-card">
             <CalendarDays size={18} />
-            <span>المطلوب حتى اليوم</span>
+            <span>المطلوب للشهر</span>
             <strong>{num(metrics.required)} س</strong>
             <small>
               {num(metrics.requiredDays)} أيام × {num(employee.daily_hours)} س
@@ -946,7 +946,10 @@ export default function AdminApp({
       daily_hours: Number(values.get("daily_hours")),
       work_days: values.getAll("work_day").map((value) => Number(value)),
       joined_on: String(values.get("joined_on")),
-      supervisor_id: String(values.get("supervisor_id") || "") || null,
+      supervisor_id:
+        modal?.type === "employee" && modal.employee
+          ? modal.employee.supervisor_id ?? null
+          : null,
     };
     if (!input.work_days.length) {
       notify("حدد يوم عمل واحدًا على الأقل للموظف.", true);
@@ -2628,7 +2631,7 @@ export default function AdminApp({
                   <div className="employee-workdays-field">
                     <span className="field-label">
                       أيام العمل الأسبوعية
-                      <small>تُستخدم مع الساعات اليومية لحساب المطلوب حتى اليوم</small>
+                      <small>تُستخدم مع الساعات اليومية لحساب المطلوب للشهر</small>
                     </span>
                     <div className="employee-workdays-options">
                       {weekDayNames.map((day, index) => (
@@ -2649,15 +2652,6 @@ export default function AdminApp({
                       ))}
                     </div>
                   </div>
-                  <label>
-                    المسؤول المباشر
-                    <select name="supervisor_id" defaultValue={modal.employee?.supervisor_id ?? ""}>
-                      <option value="">بدون مسؤول مباشر</option>
-                      {data.employees
-                        .filter((candidate) => candidate.id !== modal.employee?.id && !candidate.archived_at && candidate.user_id && team.some((account) => account.id === candidate.user_id && ["owner", "supervisor"].includes(account.role)))
-                        .map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
-                    </select>
-                  </label>
                 </div>
                 {!modal.employee && (
                   <>
