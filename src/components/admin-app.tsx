@@ -110,6 +110,25 @@ const dateLabel = (date: string) =>
     month: "long",
     timeZone: "Asia/Baghdad",
   }).format(new Date(date.length === 10 ? `${date}T12:00:00Z` : date));
+const fullDateLabel = (date: string) =>
+  new Intl.DateTimeFormat("ar-IQ-u-nu-latn", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Baghdad",
+  }).format(new Date(date.length === 10 ? `${date}T12:00:00Z` : date));
+const timeLabel = (date: string) =>
+  new Intl.DateTimeFormat("ar-IQ-u-nu-latn", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Baghdad",
+  }).format(new Date(date));
+const monthLabel = (month: string) =>
+  new Intl.DateTimeFormat("ar-IQ-u-nu-latn", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${month}-01T12:00:00Z`));
 const avatarColors = ["sage", "peach", "lilac", "blue", "rose", "yellow"];
 function taskAssigneeIds(task: Task) {
   return task.assignee_ids?.length ? task.assignee_ids : [task.employee_id];
@@ -221,6 +240,347 @@ function Empty({
       <h3>{title}</h3>
       <p>{body}</p>
       {action}
+    </div>
+  );
+}
+function employeeTaskState(task: Task, employeeId: string) {
+  const state = task.assignee_status?.[employeeId];
+  return {
+    status: state?.status ?? task.status,
+    completedAt: state?.completed_at ?? task.completed_at,
+  };
+}
+function EmployeeDetails({
+  data,
+  employee,
+  month,
+  onOpenTask,
+}: {
+  data: AppData;
+  employee: Employee;
+  month: string;
+  onOpenTask: (task: Task) => void;
+}) {
+  const metrics = employeeMetrics(data, employee, month);
+  const today = todayInBaghdad();
+  const attendance = data.attendance
+    .filter(
+      (entry) =>
+        entry.employee_id === employee.id && entry.work_date.startsWith(month),
+    )
+    .sort((a, b) => b.work_date.localeCompare(a.work_date));
+  const tasks = data.tasks.filter(
+    (task) =>
+      task.employee_id === employee.id ||
+      taskAssigneeIds(task).includes(employee.id),
+  );
+  const tasksByStatus = (status: TaskStatus) =>
+    tasks.filter(
+      (task) => employeeTaskState(task, employee.id).status === status,
+    );
+  const todoTasks = tasksByStatus("todo");
+  const activeTasks = tasksByStatus("in_progress");
+  const doneTasks = tasksByStatus("done");
+  const overdueTasks = tasks.filter((task) => {
+    const state = employeeTaskState(task, employee.id);
+    return Boolean(
+      task.due_date && task.due_date < today && state.status !== "done",
+    );
+  });
+  const monthlyCreated = tasks.filter(
+    (task) => todayInBaghdad(new Date(task.created_at)).slice(0, 7) === month,
+  ).length;
+  const monthlyCompleted = tasks.filter((task) => {
+    const completedAt = employeeTaskState(task, employee.id).completedAt;
+    return Boolean(
+      completedAt &&
+      todayInBaghdad(new Date(completedAt)).slice(0, 7) === month,
+    );
+  }).length;
+  const attendanceDays = new Set(attendance.map((entry) => entry.work_date))
+    .size;
+  const activityPercent = metrics.attendance
+    ? Math.round((metrics.active / metrics.attendance) * 100)
+    : 0;
+  const supervisor = data.employees.find(
+    (candidate) => candidate.id === employee.supervisor_id,
+  );
+  const online = isEmployeeOnline(employee, data.attendance, today);
+  const taskIds = new Set(tasks.map((task) => task.id));
+  const recentActivity = data.activities
+    .filter((entry) => taskIds.has(entry.task_id))
+    .sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )
+    .slice(0, 8);
+  const groups: {
+    status: TaskStatus;
+    tasks: Task[];
+    icon: LucideIcon;
+  }[] = [
+    { status: "todo", tasks: todoTasks, icon: Circle },
+    { status: "in_progress", tasks: activeTasks, icon: Timer },
+    { status: "done", tasks: doneTasks, icon: CircleCheck },
+  ];
+
+  return (
+    <div className="employee-profile">
+      <header className="employee-profile-hero">
+        <div className="employee-profile-avatar">
+          <Avatar name={employee.name} />
+          <StatusDot online={online} />
+        </div>
+        <div className="employee-profile-title">
+          <span className="employee-profile-kicker">ملف الموظف</span>
+          <h2 id="modal-title">{employee.name}</h2>
+          <p>
+            <BriefcaseBusiness size={15} />
+            {employee.profession || "المهنة غير محددة"}
+          </p>
+        </div>
+        <span className={`employee-presence ${online ? "online" : "offline"}`}>
+          <i />
+          {online ? "متصل الآن" : "غير متصل"}
+        </span>
+      </header>
+
+      <section className="employee-profile-section identity-section">
+        <div className="employee-section-heading">
+          <div>
+            <span>البيانات الأساسية</span>
+            <h3>معلومات الموظف والعمل</h3>
+          </div>
+        </div>
+        <div className="employee-identity-grid">
+          <div>
+            <span>رقم الهاتف</span>
+            <strong>{employee.phone || "غير مسجل"}</strong>
+          </div>
+          <div>
+            <span>البريد الإلكتروني</span>
+            <strong>{employee.email || "غير مسجل"}</strong>
+          </div>
+          <div>
+            <span>حساب تلكرام</span>
+            <strong>{employee.telegram_id || "غير مسجل"}</strong>
+          </div>
+          <div>
+            <span>المسؤول المباشر</span>
+            <strong>{supervisor?.name || "غير محدد"}</strong>
+          </div>
+          <div>
+            <span>ساعات العمل اليومية</span>
+            <strong>{num(employee.daily_hours)} ساعات</strong>
+          </div>
+          <div>
+            <span>تاريخ الانضمام</span>
+            <strong>{fullDateLabel(employee.joined_on)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="employee-profile-section">
+        <div className="employee-section-heading">
+          <div>
+            <span>الأداء الشهري</span>
+            <h3>{monthLabel(month)}</h3>
+          </div>
+          <span className="employee-month-badge">
+            <CalendarDays size={15} /> الشهر المحدد في لوحة التحكم
+          </span>
+        </div>
+        <div className="employee-performance-grid">
+          <div className="employee-performance-card">
+            <Clock3 size={18} />
+            <span>ساعات الدوام</span>
+            <strong>{num(hours(metrics.attendance))} س</strong>
+            <small>المطلوب {num(metrics.required)} س</small>
+          </div>
+          <div className="employee-performance-card">
+            <Timer size={18} />
+            <span>العمل الفعلي</span>
+            <strong>{num(hours(metrics.active))} س</strong>
+            <small>نشاط {num(activityPercent)}٪ من الدوام</small>
+          </div>
+          <div className="employee-performance-card">
+            <ActivityIcon size={18} />
+            <span>نسبة الالتزام</span>
+            <strong>{num(metrics.percent)}٪</strong>
+            <small>{num(attendanceDays)} أيام حضور</small>
+          </div>
+          <div className="employee-performance-card">
+            <CircleCheck size={18} />
+            <span>منجز هذا الشهر</span>
+            <strong>{num(monthlyCompleted)}</strong>
+            <small>من {num(monthlyCreated)} مهام أضيفت</small>
+          </div>
+        </div>
+        <div
+          className="employee-attendance-progress"
+          aria-label={`نسبة الالتزام ${metrics.percent} بالمئة`}
+        >
+          <span
+            style={{ width: `${Math.min(Math.max(metrics.percent, 0), 100)}%` }}
+          />
+        </div>
+      </section>
+
+      <section className="employee-profile-section">
+        <div className="employee-section-heading">
+          <div>
+            <span>ملخص الأعمال</span>
+            <h3>حالة جميع المهام</h3>
+          </div>
+          <span className="employee-total-tasks">
+            {num(tasks.length)} مهمة إجمالًا
+          </span>
+        </div>
+        <div className="employee-task-summary">
+          <div className="todo">
+            <span>مطلوب</span>
+            <strong>{num(todoTasks.length)}</strong>
+          </div>
+          <div className="in-progress">
+            <span>قيد العمل</span>
+            <strong>{num(activeTasks.length)}</strong>
+          </div>
+          <div className="done">
+            <span>منجز</span>
+            <strong>{num(doneTasks.length)}</strong>
+          </div>
+          <div className="overdue">
+            <span>متأخر</span>
+            <strong>{num(overdueTasks.length)}</strong>
+          </div>
+        </div>
+        <div className="employee-task-columns">
+          {groups.map((group) => {
+            const Icon = group.icon;
+            return (
+              <div
+                className={`employee-task-group ${group.status}`}
+                key={group.status}
+              >
+                <div className="employee-task-group-title">
+                  <span>
+                    <Icon size={16} /> {statusNames[group.status]}
+                  </span>
+                  <b>{num(group.tasks.length)}</b>
+                </div>
+                <div className="employee-task-items">
+                  {group.tasks.map((task) => {
+                    const state = employeeTaskState(task, employee.id);
+                    const overdue = Boolean(
+                      task.due_date &&
+                      task.due_date < today &&
+                      state.status !== "done",
+                    );
+                    return (
+                      <button
+                        className="employee-task-item"
+                        key={task.id}
+                        onClick={() => onOpenTask(task)}
+                      >
+                        <span className={`priority ${task.priority}`}>
+                          أولوية {priorityNames[task.priority]}
+                        </span>
+                        <strong>{task.title}</strong>
+                        <small className={overdue ? "overdue" : ""}>
+                          {state.completedAt
+                            ? `أُنجزت ${dateLabel(state.completedAt)}`
+                            : task.due_date
+                              ? `${overdue ? "متأخرة · " : "موعدها "}${dateLabel(task.due_date)}`
+                              : "دون موعد تسليم"}
+                        </small>
+                      </button>
+                    );
+                  })}
+                  {!group.tasks.length && <p>لا توجد مهام ضمن هذه الحالة.</p>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="employee-profile-section">
+        <div className="employee-section-heading">
+          <div>
+            <span>سجل الدوام</span>
+            <h3>أوقات الحضور والعمل خلال {monthLabel(month)}</h3>
+          </div>
+          <span className="employee-total-tasks">
+            {num(attendanceDays)} أيام
+          </span>
+        </div>
+        {attendance.length ? (
+          <div className="employee-attendance-table-wrap">
+            <table className="employee-attendance-table">
+              <thead>
+                <tr>
+                  <th>التاريخ</th>
+                  <th>بداية الدوام</th>
+                  <th>نهاية الدوام</th>
+                  <th>مدة الدوام</th>
+                  <th>العمل الفعلي</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attendance.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{fullDateLabel(entry.work_date)}</td>
+                    <td>{timeLabel(entry.started_at)}</td>
+                    <td>
+                      {entry.ended_at ? (
+                        timeLabel(entry.ended_at)
+                      ) : (
+                        <span className="live-work">مستمر الآن</span>
+                      )}
+                    </td>
+                    <td>{num(hours(entry.attendance_seconds))} س</td>
+                    <td>{num(hours(entry.active_seconds))} س</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="employee-profile-empty">
+            <Clock3 size={20} /> لا توجد سجلات دوام في الشهر المحدد.
+          </div>
+        )}
+      </section>
+
+      <section className="employee-profile-section">
+        <div className="employee-section-heading">
+          <div>
+            <span>النشاط الأخير</span>
+            <h3>آخر التحديثات على مهام الموظف</h3>
+          </div>
+        </div>
+        {recentActivity.length ? (
+          <div className="employee-activity-list">
+            {recentActivity.map((entry) => (
+              <div key={entry.id}>
+                <ActivityIcon size={16} />
+                <span>
+                  <strong>{entry.actor_name}</strong>
+                  {entry.action}
+                </span>
+                <small>
+                  {fullDateLabel(entry.created_at)} ·{" "}
+                  {timeLabel(entry.created_at)}
+                </small>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="employee-profile-empty">
+            <ActivityIcon size={20} /> لا توجد تحديثات مسجلة على مهام الموظف.
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -2137,7 +2497,7 @@ export default function AdminApp({
       )}
       <dialog
         ref={dialog}
-        className="modal"
+        className={`modal ${modal?.type === "employee-detail" ? "employee-detail-modal" : ""}`}
         onCancel={() => setModal(null)}
         onClick={(e) => {
           if (e.target === dialog.current) setModal(null);
@@ -2503,78 +2863,12 @@ export default function AdminApp({
             </>
           )}
           {modal?.type === "employee-detail" && (
-            <>
-              <Avatar name={modal.employee.name} />
-              <h2 id="modal-title">{modal.employee.name}</h2>
-              <p className="modal-description">
-                {modal.employee.profession} · {num(modal.employee.daily_hours)}{" "}
-                ساعات يوميًا
-              </p>
-              <div className="detail-stats">
-                {(() => {
-                  const m = employeeMetrics(data, modal.employee, month);
-                  return (
-                    <>
-                      <div>
-                        <span>ساعات الدوام</span>
-                        <strong>{num(hours(m.attendance))}</strong>
-                      </div>
-                      <div>
-                        <span>وقت العمل</span>
-                        <strong>{num(hours(m.active))}</strong>
-                      </div>
-                      <div>
-                        <span>نسبة الدوام</span>
-                        <strong>{num(m.percent)}٪</strong>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-              <h3>المهام المنجزة</h3>
-              <div className="detail-list">
-                {data.tasks
-                  .filter(
-                    (t) =>
-                      (t.employee_id === modal.employee.id ||
-                        taskAssigneeIds(t).includes(modal.employee.id)) &&
-                      t.status === "done",
-                  )
-                  .map((t) => (
-                    <div key={t.id}>
-                      <CircleCheck size={18} />
-                      <span>{t.title}</span>
-                      <small>
-                        {t.completed_at && dateLabel(t.completed_at)}
-                      </small>
-                    </div>
-                  ))}
-                {!data.tasks.some(
-                  (t) =>
-                    (t.employee_id === modal.employee.id ||
-                      taskAssigneeIds(t).includes(modal.employee.id)) &&
-                    t.status === "done",
-                ) && <p className="muted">لا توجد مهام منجزة بعد.</p>}
-              </div>
-              <h3>التقارير اليومية</h3>
-              <div className="detail-list">
-                {data.reports
-                  .filter((r) => r.employee_id === modal.employee.id)
-                  .map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() => setModal({ type: "report", report: r })}
-                    >
-                      <FileText size={17} />
-                      {dateLabel(r.report_date)}
-                      <ChevronLeft size={16} />
-                    </button>
-                  ))}
-                {!data.reports.some(
-                  (r) => r.employee_id === modal.employee.id,
-                ) && <p className="muted">لا توجد تقارير مرسلة بعد.</p>}
-              </div>
-            </>
+            <EmployeeDetails
+              data={data}
+              employee={modal.employee}
+              month={month}
+              onOpenTask={(task) => setModal({ type: "task-detail", task })}
+            />
           )}
           {modal?.type === "report" && (
             <>
