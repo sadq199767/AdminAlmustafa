@@ -93,19 +93,32 @@ export async function GET(req: NextRequest) {
       email: e.user_id ? emailMap.get(String(e.user_id)) ?? null : null,
     }));
     const assigneeByTask = new Map<string, string[]>();
+    const stateByTask = new Map<
+      string,
+      Record<string, { status: string | null; completed_at: string | null }>
+    >();
     for (const a of results[4].data as {
       task_id: string;
       employee_id: string;
+      status?: string | null;
+      completed_at?: string | null;
     }[]) {
       const list = assigneeByTask.get(a.task_id) ?? [];
       list.push(a.employee_id);
       assigneeByTask.set(a.task_id, list);
+      const states = stateByTask.get(a.task_id) ?? {};
+      states[String(a.employee_id)] = {
+        status: a.status ?? null,
+        completed_at: a.completed_at ?? null,
+      };
+      stateByTask.set(a.task_id, states);
     }
     const tasks: Record<string, unknown>[] = (
       results[1].data as Record<string, unknown>[]
     ).map((t) => ({
       ...t,
       assignee_ids: assigneeByTask.get(String(t.id)) ?? (t.employee_id ? [String(t.employee_id)] : []),
+      assignee_status: stateByTask.get(String(t.id)) ?? {},
     }));
     return NextResponse.json(
       {

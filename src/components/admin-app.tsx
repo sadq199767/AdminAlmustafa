@@ -119,6 +119,47 @@ function taskAssigneeNames(data: AppData, task: Task) {
     .map((id) => data.employees.find((e) => e.id === id)?.name)
     .filter(Boolean) as string[];
 }
+function taskAssigneeStatus(task: Task, id: string): TaskStatus {
+  return task.assignee_status?.[id]?.status ?? "todo";
+}
+function taskAssigneeMembers(data: AppData, task: Task) {
+  return taskAssigneeIds(task).map((id) => ({
+    id,
+    name: data.employees.find((e) => e.id === id)?.name ?? "موظف",
+  }));
+}
+function AssigneeChips({
+  task,
+  members,
+}: {
+  task: Task;
+  members: { id: string; name: string }[];
+}) {
+  const multi = members.length > 1;
+  return (
+    <span className="task-card-assignees">
+      {members.map((m) => {
+        const st = taskAssigneeStatus(task, m.id);
+        return (
+          <span
+            key={m.id}
+            className={`task-card-assignee assignee-${st}`}
+            title={`${m.name} — ${statusNames[st]}`}
+          >
+            <Avatar name={m.name} small />
+            {m.name}
+            {multi &&
+              (st === "done" ? (
+                <Check size={12} className="assignee-ok" />
+              ) : (
+                <small className="assignee-state">{statusNames[st]}</small>
+              ))}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 function isEmployeeOnline(
   emp: { last_seen_at?: string | null; id: string },
   attendance: { employee_id: string; work_date: string; ended_at: string | null }[],
@@ -1825,7 +1866,7 @@ export default function AdminApp({
                                     (e) => e.id === task.employee_id,
                                   )?.task_color ?? undefined
                                 }
-                                names={taskAssigneeNames(data, task)}
+                                assignees={taskAssigneeMembers(data, task)}
                                 busy={busy}
                                 dragging={dragTask?.id === task.id}
                                 onDragStart={() => setDragTask(task)}
@@ -1880,10 +1921,10 @@ export default function AdminApp({
                             </button>
                           </td>
                           <td>
-                            {taskAssigneeNames(data, t).join("، ") ||
-                              data.employees.find(
-                                (e) => e.id === t.employee_id,
-                              )?.name}
+                            <AssigneeChips
+                              task={t}
+                              members={taskAssigneeMembers(data, t)}
+                            />
                           </td>
                           <td>
                             <span className={`priority ${t.priority}`}>
@@ -2570,9 +2611,12 @@ export default function AdminApp({
               </span>
               <h2 id="modal-title">{modal.task.title}</h2>
               <p className="modal-description">
-                مسؤول التنفيذ:{" "}
-                {taskAssigneeNames(data, modal.task).join("، ") || "موظف"}
+                مسؤول التنفيذ:
               </p>
+              <AssigneeChips
+                task={modal.task}
+                members={taskAssigneeMembers(data, modal.task)}
+              />
               <div className="report-full">
                 {modal.task.description || "لا توجد تفاصيل إضافية."}
               </div>
@@ -2920,7 +2964,7 @@ function WorkChart({ data, month }: { data: AppData; month: string }) {
 function TaskCard({
   task,
   employee,
-  names,
+  assignees,
   busy,
   open,
   remove,
@@ -2933,7 +2977,7 @@ function TaskCard({
 }: {
   task: Task;
   employee?: Employee;
-  names?: string[];
+  assignees?: { id: string; name: string }[];
   busy: boolean;
   open: () => void;
   remove: () => void;
@@ -3006,16 +3050,16 @@ function TaskCard({
         </span>
       )}
       <div className="task-card-bottom">
-        <span className="task-card-assignees">
-          {(names?.length ? names : employee ? [employee.name] : []).map(
-            (n) => (
-              <span className="task-card-assignee" key={n}>
-                <Avatar name={n} small />
-                {n}
-              </span>
-            ),
-          )}
-        </span>
+        <AssigneeChips
+          task={task}
+          members={
+            assignees?.length
+              ? assignees
+              : employee
+                ? [{ id: employee.id, name: employee.name }]
+                : [{ id: task.employee_id, name: "موظف" }]
+          }
+        />
         <span className={`task-status-badge ${task.status}`}>
           {statusNames[task.status]}
         </span>

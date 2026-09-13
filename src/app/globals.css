@@ -1513,11 +1513,53 @@ tbody tr:hover {
 }
 .task-card-assignees {
   flex-wrap: wrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .task-card-assignee {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-weight: 500;
+}
+.task-card-assignee .avatar.small {
+  width: 18px;
+  height: 18px;
+  font-size: 8px;
+}
+.task-card-assignee .assignee-state {
+  font-size: 10px;
+  opacity: 0.85;
+}
+.task-card-assignee.assignee-done {
+  color: #4d7e54;
+  background: #eaf3ea;
+}
+.task-card-assignee.assignee-done .assignee-ok {
+  color: #4d7e54;
+}
+.task-card-assignee.assignee-in_progress {
+  color: #3571a0;
+  background: #eaf2f8;
+}
+.task-card-assignee.assignee-todo {
+  color: #a44034;
+  background: #faeeeb;
+}
+[data-theme="dark"] .task-card-assignee.assignee-done {
+  color: #b0cfad;
+  background: #2c4030;
+}
+[data-theme="dark"] .task-card-assignee.assignee-in_progress {
+  color: #8fc1e8;
+  background: #243a4b;
+}
+[data-theme="dark"] .task-card-assignee.assignee-todo {
+  color: #f1aa9d;
+  background: #452d29;
 }
 .task-assignees-field {
   display: flex;

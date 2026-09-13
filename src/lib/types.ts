@@ -8,6 +8,7 @@ export type TaskComment = {
   created_at: string;
 };
 export type TaskStatus = "todo" | "in_progress" | "done";
+export type AssigneeState = { status: TaskStatus | null; completed_at: string | null };
 export type Employee = {
   id: string;
   user_id: string | null;
@@ -43,6 +44,7 @@ export type Task = {
   updated_at: string;
   completed_at: string | null;
   assignee_ids: string[];
+  assignee_status?: Record<string, AssigneeState>;
 };
 export type Attendance = {
   id: string;
