@@ -311,9 +311,6 @@ function EmployeeDetails({
   const activityPercent = metrics.attendance
     ? Math.round((metrics.active / metrics.attendance) * 100)
     : 0;
-  const supervisor = data.employees.find(
-    (candidate) => candidate.id === employee.supervisor_id,
-  );
   const employeeWorkDays = employee.work_days?.length
     ? employee.work_days
     : data.settings.work_days;
@@ -376,10 +373,6 @@ function EmployeeDetails({
           <div>
             <span>حساب تلكرام</span>
             <strong>{employee.telegram_id || "غير مسجل"}</strong>
-          </div>
-          <div>
-            <span>المسؤول المباشر</span>
-            <strong>{supervisor?.name || "غير محدد"}</strong>
           </div>
           <div>
             <span>ساعات العمل اليومية</span>
