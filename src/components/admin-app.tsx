@@ -309,7 +309,7 @@ function EmployeeDetails({
   const employeeWorkDays = employee.work_days?.length
     ? employee.work_days
     : data.settings.work_days;
-  const online = isEmployeeOnline(employee);
+  const online = isEmployeeOnline(employee, data.attendance);
   const taskIds = new Set(tasks.map((task) => task.id));
   const recentActivity = data.activities
     .filter((entry) => taskIds.has(entry.task_id))
@@ -1902,7 +1902,10 @@ export default function AdminApp({
                                     <strong>
                                       {m.employee.name}
                                       <StatusDot
-                                        online={isEmployeeOnline(m.employee)}
+                                        online={isEmployeeOnline(
+                                          m.employee,
+                                          data.attendance,
+                                        )}
                                       />
                                     </strong>
                                     <small>{m.employee.profession}</small>
@@ -2090,7 +2093,10 @@ export default function AdminApp({
                                   <strong>
                                     {e.name}
                                     <StatusDot
-                                      online={isEmployeeOnline(e)}
+                                      online={isEmployeeOnline(
+                                        e,
+                                        data.attendance,
+                                      )}
                                     />
                                   </strong>
                                   <small>

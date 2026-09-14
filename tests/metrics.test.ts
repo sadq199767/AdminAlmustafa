@@ -58,6 +58,44 @@ test("online status only follows a recent desktop heartbeat", () => {
   );
   assert.equal(isEmployeeOnline({ last_seen_at: null }, now), false);
 });
+test("fresh attendance sync bridges desktop versions without stale online dots", () => {
+  const now = Date.parse("2026-09-13T12:00:00Z");
+  const entry = {
+    id: "attendance-1",
+    employee_id: "employee-1",
+    work_date: "2026-09-13",
+    attendance_seconds: 3600,
+    active_seconds: 3000,
+    started_at: "2026-09-13T10:59:00Z",
+    ended_at: null,
+    updated_at: "2026-09-13T11:59:00Z",
+  };
+
+  assert.equal(
+    isEmployeeOnline(
+      { id: "employee-1", last_seen_at: null },
+      [entry],
+      now,
+    ),
+    true,
+  );
+  assert.equal(
+    isEmployeeOnline(
+      { id: "employee-1", last_seen_at: null },
+      [{ ...entry, updated_at: "2026-09-13T11:55:00Z" }],
+      now,
+    ),
+    false,
+  );
+  assert.equal(
+    isEmployeeOnline(
+      { id: "employee-2", last_seen_at: null },
+      [entry],
+      now,
+    ),
+    false,
+  );
+});
 test("attendance sessions are combined into one row per day", () => {
   const sessions = [
     {

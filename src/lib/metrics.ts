@@ -3,13 +3,30 @@ import type { AppData, Attendance, Employee } from "./types";
 const PRESENCE_TIMEOUT_MS = 180_000;
 
 export function isEmployeeOnline(
-  employee: Pick<Employee, "last_seen_at">,
+  employee: Pick<Employee, "last_seen_at"> & { id?: string },
+  attendanceOrNow: Attendance[] | number = [],
   now = Date.now(),
 ) {
-  if (!employee.last_seen_at) return false;
-  const seenAt = Date.parse(employee.last_seen_at);
-  const age = now - seenAt;
-  return Number.isFinite(seenAt) && age >= -60_000 && age < PRESENCE_TIMEOUT_MS;
+  const attendance = Array.isArray(attendanceOrNow) ? attendanceOrNow : [];
+  const clock = typeof attendanceOrNow === "number" ? attendanceOrNow : now;
+  const isRecent = (value?: string | null) => {
+    if (!value) return false;
+    const seenAt = Date.parse(value);
+    const age = clock - seenAt;
+    return Number.isFinite(seenAt) && age >= -60_000 && age < PRESENCE_TIMEOUT_MS;
+  };
+
+  if (isRecent(employee.last_seen_at)) return true;
+
+  const today = todayInBaghdad(new Date(clock));
+  return attendance.some(
+    (entry) =>
+      Boolean(employee.id) &&
+      entry.employee_id === employee.id &&
+      entry.work_date === today &&
+      !entry.ended_at &&
+      isRecent(entry.updated_at),
+  );
 }
 
 export type AttendanceDay = {
