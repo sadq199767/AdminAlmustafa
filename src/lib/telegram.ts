@@ -316,26 +316,14 @@ export async function notifyAttendance(
       .is("archived_at", null)
       .maybeSingle();
     if (!employee) return "unconfigured";
-    const personal = opts.isEnd
-      ? `🔴 أنهيت الدوام\n⏱ المدة: ${opts.duration}\n🕐 ${opts.time}`
-      : `🟢 بدأت الدوام الآن\n🕐 ${opts.time}`;
     const toSupervisor = opts.isEnd
       ? `🔴 ${employee.name} أنهى الدوام\n⏱ المدة: ${opts.duration}\n🕐 ${opts.time}`
       : `🟢 ${employee.name} بدأ الدوام الآن\n🕐 ${opts.time}`;
     // A stable event id makes retries and concurrent sync requests idempotent.
     const stamp = `attendance-${opts.isEnd ? "end" : "start"}-${opts.eventId}`;
-    const results: string[] = [];
-    results.push(await sendNotification(`${stamp}-self`, employee.id, personal));
-    if (employee.supervisor_id && employee.supervisor_id !== employee.id) {
-      results.push(
-        await sendNotification(`${stamp}-sup`, employee.supervisor_id, toSupervisor),
-      );
-    }
-    return results.includes("failed")
-      ? "failed"
-      : results.includes("sent")
-        ? "sent"
-        : results[0];
+    if (!employee.supervisor_id || employee.supervisor_id === employee.id)
+      return "unconfigured";
+    return await sendNotification(`${stamp}-sup`, employee.supervisor_id, toSupervisor);
   } catch {
     return "failed";
   }
