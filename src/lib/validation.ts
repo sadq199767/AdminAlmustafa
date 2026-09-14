@@ -70,6 +70,7 @@ export const attendanceSchema = z
     ended_at: z.string().datetime().nullable(),
     attendance_seconds: z.number().int().min(0).max(86400),
     active_seconds: z.number().int().min(0).max(86400),
+    notification_event: z.enum(["start", "end", "none"]).optional(),
   })
   .refine(
     (v) => v.active_seconds <= v.attendance_seconds,

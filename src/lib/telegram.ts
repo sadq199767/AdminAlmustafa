@@ -304,7 +304,7 @@ export async function notifySupervisorActivity(
 }
 export async function notifyAttendance(
   employeeId: string,
-  opts: { isEnd: boolean; duration: string; time: string },
+  opts: { eventId: string; isEnd: boolean; duration: string; time: string },
 ) {
   try {
     if (!serviceReady()) return "unconfigured";
@@ -322,7 +322,8 @@ export async function notifyAttendance(
     const toSupervisor = opts.isEnd
       ? `🔴 ${employee.name} أنهى الدوام\n⏱ المدة: ${opts.duration}\n🕐 ${opts.time}`
       : `🟢 ${employee.name} بدأ الدوام الآن\n🕐 ${opts.time}`;
-    const stamp = `attendance-${opts.isEnd ? "end" : "start"}-${employee.id}-${Date.now()}`;
+    // A stable event id makes retries and concurrent sync requests idempotent.
+    const stamp = `attendance-${opts.isEnd ? "end" : "start"}-${opts.eventId}`;
     const results: string[] = [];
     results.push(await sendNotification(`${stamp}-self`, employee.id, personal));
     if (employee.supervisor_id && employee.supervisor_id !== employee.id) {
