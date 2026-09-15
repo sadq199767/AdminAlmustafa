@@ -3,10 +3,11 @@ import type { AppData, Attendance, Employee } from "./types";
 const PRESENCE_TIMEOUT_MS = 180_000;
 
 export function isEmployeeOnline(
-  employee: Pick<Employee, "last_seen_at"> & { id?: string },
+  employee: Pick<Employee, "last_seen_at" | "is_online"> & { id?: string },
   attendanceOrNow: Attendance[] | number = [],
   now = Date.now(),
 ) {
+  if (typeof employee.is_online === "boolean") return employee.is_online;
   const attendance = Array.isArray(attendanceOrNow) ? attendanceOrNow : [];
   const clock = typeof attendanceOrNow === "number" ? attendanceOrNow : now;
   const isRecent = (value?: string | null) => {

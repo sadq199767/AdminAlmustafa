@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorize, fail, serviceClient, serviceReady } from "@/lib/server";
+import { isEmployeeOnline, todayInBaghdad } from "@/lib/metrics";
+import type { Attendance, Employee } from "@/lib/types";
 export const dynamic = "force-dynamic";
 async function readAll(
   db: Awaited<ReturnType<typeof authorize>>["db"],
@@ -86,12 +88,26 @@ export async function GET(req: NextRequest) {
           })),
       ];
     }
+    const serverNow = Date.now();
+    const today = todayInBaghdad(new Date(serverNow));
+    const liveAttendanceByEmployee = new Map<string, Attendance[]>();
+    for (const entry of results[2].data as Attendance[]) {
+      if (entry.work_date !== today || entry.ended_at) continue;
+      const records = liveAttendanceByEmployee.get(entry.employee_id) ?? [];
+      records.push(entry);
+      liveAttendanceByEmployee.set(entry.employee_id, records);
+    }
     const employees: Record<string, unknown>[] = (employeeRows as Record<
       string,
       unknown
     >[]).map((e) => ({
       ...e,
       email: e.user_id ? emailMap.get(String(e.user_id)) ?? null : null,
+      is_online: isEmployeeOnline(
+        e as Employee,
+        liveAttendanceByEmployee.get(String(e.id)) ?? [],
+        serverNow,
+      ),
     }));
     const assigneeByTask = new Map<string, string[]>();
     const stateByTask = new Map<

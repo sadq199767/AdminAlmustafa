@@ -58,6 +58,17 @@ test("online status only follows a recent desktop heartbeat", () => {
   );
   assert.equal(isEmployeeOnline({ last_seen_at: null }, now), false);
 });
+test("server online status is not changed by a browser clock mismatch", () => {
+  const stale = "2026-09-13T11:55:00Z";
+  assert.equal(
+    isEmployeeOnline({ last_seen_at: stale, is_online: true }, Date.parse("2026-09-13T12:15:00Z")),
+    true,
+  );
+  assert.equal(
+    isEmployeeOnline({ last_seen_at: stale, is_online: false }, Date.parse("2026-09-13T11:56:00Z")),
+    false,
+  );
+});
 test("fresh attendance sync bridges desktop versions without stale online dots", () => {
   const now = Date.parse("2026-09-13T12:00:00Z");
   const entry = {

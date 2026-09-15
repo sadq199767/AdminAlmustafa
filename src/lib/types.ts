@@ -21,6 +21,7 @@ export type Employee = {
   joined_on: string;
   archived_at: string | null;
   last_seen_at?: string | null;
+  is_online?: boolean;
   task_color?: string | null;
   supervisor_id?: string | null;
   created_at: string;

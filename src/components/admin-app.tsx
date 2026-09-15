@@ -194,11 +194,25 @@ function AssigneeChips({
     </span>
   );
 }
-function StatusDot({ online }: { online: boolean }) {
+function StatusDot({
+  online,
+  lastSeenAt,
+}: {
+  online: boolean;
+  lastSeenAt?: string | null;
+}) {
+  const seen = lastSeenAt ? new Date(lastSeenAt) : null;
+  const lastSeen = seen && Number.isFinite(seen.getTime())
+    ? new Intl.DateTimeFormat("ar-IQ", {
+        dateStyle: "short",
+        timeStyle: "short",
+        timeZone: "Asia/Baghdad",
+      }).format(seen)
+    : null;
   return (
     <span
       className={`status-dot ${online ? "online" : "offline"}`}
-      title={online ? "متصل الآن" : "غير متصل"}
+      title={online ? "متصل الآن" : lastSeen ? `آخر اتصال ${lastSeen}` : "لم تصل نبضة اتصال من برنامج الموظف"}
     />
   );
 }
@@ -309,7 +323,8 @@ function EmployeeDetails({
   const employeeWorkDays = employee.work_days?.length
     ? employee.work_days
     : data.settings.work_days;
-  const online = isEmployeeOnline(employee, data.attendance);
+  const currentEmployee = data.employees.find((entry) => entry.id === employee.id) ?? employee;
+  const online = isEmployeeOnline(currentEmployee, data.attendance);
   const taskIds = new Set(tasks.map((task) => task.id));
   const recentActivity = data.activities
     .filter((entry) => taskIds.has(entry.task_id))
@@ -340,7 +355,7 @@ function EmployeeDetails({
       >
         <div className="employee-profile-avatar">
           <Avatar name={employee.name} />
-          <StatusDot online={online} />
+          <StatusDot online={online} lastSeenAt={currentEmployee.last_seen_at} />
         </div>
         <div className="employee-profile-title">
           <span className="employee-profile-kicker">ملف الموظف</span>
@@ -1906,6 +1921,7 @@ export default function AdminApp({
                                           m.employee,
                                           data.attendance,
                                         )}
+                                        lastSeenAt={m.employee.last_seen_at}
                                       />
                                     </strong>
                                     <small>{m.employee.profession}</small>
@@ -2097,6 +2113,7 @@ export default function AdminApp({
                                         e,
                                         data.attendance,
                                       )}
+                                      lastSeenAt={e.last_seen_at}
                                     />
                                   </strong>
                                   <small>
